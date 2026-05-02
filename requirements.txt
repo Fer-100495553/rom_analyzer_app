@@ -4,6 +4,7 @@ cycler==0.12.1
 darkdetect==0.8.0
 defusedxml==0.7.1
 et_xmlfile==2.0.0
+ezc3d==1.7.0
 fonttools==4.62.1
 fpdf2==2.8.7
 kiwisolver==1.5.0
@@ -15,5 +16,6 @@ pandas==3.0.2
 pillow==12.2.0
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
+scipy==1.17.1
 six==1.17.0
 tzdata==2026.2

@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(venv/Scripts/python.exe -c ' *)"
+      "Bash(venv/Scripts/python.exe -c ' *)",
+      "PowerShell(& \"e:\\\\Universidad_2\\\\Fourth Year\\\\4.2_Pr�cticas y TFG\\\\TFG\\\\An�lisis de Resultados\\\\APP_Analisis de resultados\\\\venv\\\\Scripts\\\\python.exe\" -m pytest \"e:\\\\Universidad_2\\\\Fourth Year\\\\4.2_Pr�cticas y TFG\\\\TFG\\\\An�lisis de Resultados\\\\APP_Analisis de resultados\\\\tests\\\\\" -v 2>&1)",
+      "Bash(git rebase *)"
     ]
   }
 }
