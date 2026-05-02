@@ -1,4 +1,4 @@
-venvd/
+venv/
 data_c3d/
 __pycache__/
 *.pyc
