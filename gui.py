@@ -9,10 +9,20 @@ import pandas as pd
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import filedialog, messagebox
 
+import settings_manager
+from translations import t
+
 logger = logging.getLogger(__name__)
 
 # ── Side display label for no-prefix variables ────────────────────────────
 _NO_SIDE = "—"
+
+# ── Widget keys excluded when saving/restoring import-row state ────────────
+_ROW_WIDGET_KEYS = frozenset({
+    "file_lbl", "status_lbl", "offset_cb",
+    "offset_entry", "offset_left_entry", "offset_right_entry",
+    "offset_var", "offset_entry_var", "offset_left_var", "offset_right_var",
+})
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -45,42 +55,67 @@ class App(ctk.CTk):
 
     def __init__(self) -> None:
         super().__init__()
-        self.title("ROM Analyzer — Vicon Nexus")
-        self.geometry("800x740")       # fallback before zoomed kicks in
+        self.title(t("app_title"))
+        self.geometry("800x740")
         self.resizable(True, True)
-        self.state("zoomed")           # open maximized on Windows
+        self.state("zoomed")
         self.bind("<F11>", lambda e: self.attributes("-fullscreen",
                                                      not self.attributes("-fullscreen")))
         self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
 
         # ── Persistent session state ──────────────────────────────────────
-        # Screen 1
         self._movement_vars: dict[str, ctk.BooleanVar] = {}
         self._laterality_var = ctk.StringVar(value="bilateral")
-
-        # Screen 2 — list of import-row dicts, one per (movement, side) combo
-        # Each dict: mv_name, side, loaded, angle_data, frame_rate, events,
-        #            file_lbl (widget), status_lbl (widget)
         self._import_rows: list[dict] = []
-        self._process_btn: ctk.CTkButton | None = None   # "Process All →"
-
-        # Screen 3 / 4 — keyed by (mv_name, side)
+        self._process_btn: ctk.CTkButton | None = None
         self._processed: dict[tuple[str, str], dict] = {}
 
-        # ── Persistent title bar ──────────────────────────────────────────
-        ctk.CTkLabel(
-            self, text="ROM Analyzer",
+        # Navigation state (used to re-render on language change)
+        self._current_screen: int = 1
+        self._selected_movements: list[str] = []
+
+        # ── Persistent header ─────────────────────────────────────────────
+        _hdr = ctk.CTkFrame(self, fg_color="transparent")
+        _hdr.pack(fill="x", padx=20, pady=(20, 2))
+        _hdr.grid_columnconfigure(0, weight=1)   # left spacer
+        _hdr.grid_columnconfigure(1, weight=0)   # title (fixed width)
+        _hdr.grid_columnconfigure(2, weight=1)   # right area (settings btn)
+
+        self._title_lbl = ctk.CTkLabel(
+            _hdr, text=t("app_title"),
             font=ctk.CTkFont(size=26, weight="bold"),
-        ).pack(pady=(20, 2))
-        ctk.CTkLabel(
-            self, text="Vicon Nexus  ·  Range of Motion Analysis",
-            text_color="gray",
-        ).pack(pady=(0, 12))
+        )
+        self._title_lbl.grid(row=0, column=0, columnspan=3, pady=(0, 2))
+
+        self._subtitle_lbl = ctk.CTkLabel(
+            _hdr, text=t("app_subtitle"), text_color="gray",
+        )
+        self._subtitle_lbl.grid(row=1, column=0, columnspan=3)
+
+        # Settings button — top-right corner of the header
+        _right_frame = ctk.CTkFrame(_hdr, fg_color="transparent")
+        _right_frame.grid(row=0, column=2, rowspan=2, sticky="ne", pady=4)
+        ctk.CTkButton(
+            _right_frame, text="⚙", width=36, height=36,
+            font=ctk.CTkFont(size=18),
+            fg_color="transparent", border_width=1,
+            command=self._open_settings,
+        ).pack(anchor="e", padx=(0, 4))
+
+        # Spacing after header
+        ctk.CTkFrame(self, height=10, fg_color="transparent").pack()
 
         self._container = ctk.CTkFrame(self, fg_color="transparent")
         self._container.pack(fill="both", expand=True, padx=20, pady=(0, 18))
 
         self._show_screen_1()
+
+    # ── Header refresh ─────────────────────────────────────────────────────
+
+    def _refresh_header(self) -> None:
+        self._title_lbl.configure(text=t("app_title"))
+        self._subtitle_lbl.configure(text=t("app_subtitle"))
+        self.title(t("app_title"))
 
     # ── Screen helpers ─────────────────────────────────────────────────────
 
@@ -88,17 +123,91 @@ class App(ctk.CTk):
         for child in self._container.winfo_children():
             child.destroy()
 
+    def _rerender_current_screen(self) -> None:
+        if self._current_screen == 1:
+            self._show_screen_1()
+        elif self._current_screen == 2:
+            self._show_screen_2(self._selected_movements)
+        elif self._current_screen == 4:
+            self._show_screen_4()
+
+    # ── Settings dialog ────────────────────────────────────────────────────
+
+    def _open_settings(self) -> None:
+        dlg = ctk.CTkToplevel(self)
+        dlg.title(t("settings_title"))
+        dlg.geometry("340x260")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.lift()
+        dlg.focus_force()
+
+        # ── Language ──────────────────────────────────────────────────────
+        ctk.CTkLabel(
+            dlg, text=t("settings_language_label"),
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", padx=24, pady=(22, 6))
+
+        lang_frame = ctk.CTkFrame(dlg, fg_color="transparent")
+        lang_frame.pack(anchor="w", padx=24)
+
+        lang_var = ctk.StringVar(value=settings_manager.get("language"))
+        for label, value in [("English", "en"), ("Español", "es")]:
+            ctk.CTkRadioButton(
+                lang_frame, text=label,
+                variable=lang_var, value=value,
+                command=lambda v=value: self._on_language_change(v, dlg),
+            ).pack(side="left", padx=(0, 20))
+
+        # ── Theme ─────────────────────────────────────────────────────────
+        ctk.CTkLabel(
+            dlg, text=t("settings_theme_label"),
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", padx=24, pady=(20, 6))
+
+        theme_frame = ctk.CTkFrame(dlg, fg_color="transparent")
+        theme_frame.pack(anchor="w", padx=24)
+
+        theme_var = ctk.StringVar(value=settings_manager.get("theme"))
+        for label_key, value in [
+            ("settings_theme_system", "System"),
+            ("settings_theme_dark",   "Dark"),
+            ("settings_theme_light",  "Light"),
+        ]:
+            ctk.CTkRadioButton(
+                theme_frame, text=t(label_key),
+                variable=theme_var, value=value,
+                command=lambda v=value: self._on_theme_change(v),
+            ).pack(side="left", padx=(0, 16))
+
+        # ── Close ─────────────────────────────────────────────────────────
+        ctk.CTkButton(
+            dlg, text=t("settings_close"),
+            width=120, command=dlg.destroy,
+        ).pack(pady=(26, 16))
+
+    def _on_language_change(self, lang: str, dlg: ctk.CTkToplevel) -> None:
+        settings_manager.set_language(lang)
+        dlg.title(t("settings_title"))
+        self._refresh_header()
+        self._rerender_current_screen()
+
+    def _on_theme_change(self, theme: str) -> None:
+        settings_manager.set_theme(theme)
+        ctk.set_appearance_mode(theme)
+
     # ══════════════════════════════════════════════════════════════════════
     #  Screen 1 — Study Configuration
     # ══════════════════════════════════════════════════════════════════════
 
     def _show_screen_1(self) -> None:
+        self._current_screen = 1
         self._clear_container()
         f = ctk.CTkFrame(self._container, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
         # ── A: Movement selection ─────────────────────────────────────────
-        card_mv = _card(f, "SELECT MOVEMENTS TO ANALYZE")
+        card_mv = _card(f, t("s1_card_movements"))
         card_mv.pack(fill="x", pady=(0, 8))
 
         from config import MOVEMENT_DEFINITIONS
@@ -112,45 +221,44 @@ class App(ctk.CTk):
             self._movement_vars[mv_name] = var
 
             is_optional = mv_def.get("optional", False)
-            display = mv_name if not is_optional else f"{mv_name}  (not yet available)"
-            cb = ctk.CTkCheckBox(
+            display = (mv_name if not is_optional
+                       else f"{mv_name}  {t('s1_not_available')}")
+            ctk.CTkCheckBox(
                 row, text=display, variable=var, width=380,
                 state="disabled" if is_optional else "normal",
-            )
-            cb.pack(side="left")
+            ).pack(side="left")
 
-        # Select All / Deselect All
         sel_row = ctk.CTkFrame(card_mv, fg_color="transparent")
         sel_row.pack(anchor="w", padx=12, pady=(6, 10))
-        ctk.CTkButton(sel_row, text="Select All", width=100,
+        ctk.CTkButton(sel_row, text=t("s1_select_all"), width=120,
                       command=self._select_all).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(sel_row, text="Deselect All", width=100,
+        ctk.CTkButton(sel_row, text=t("s1_deselect_all"), width=120,
                       command=self._deselect_all).pack(side="left")
 
         # ── B: Laterality ─────────────────────────────────────────────────
-        card_lat = _card(f, "LATERALITY")
+        card_lat = _card(f, t("s1_card_laterality"))
         card_lat.pack(fill="x", pady=(0, 8))
 
         lat_row = ctk.CTkFrame(card_lat, fg_color="transparent")
         lat_row.pack(anchor="w", padx=12, pady=(0, 10))
 
-        for text, val, hint in [
-            ("Bilateral",  "bilateral",  "one shared C3D per movement → extracts Left + Right"),
-            ("Unilateral", "unilateral", "separate C3D per side per movement"),
+        for text_key, val, hint_key in [
+            ("s1_bilateral",  "bilateral",  "s1_bilateral_hint"),
+            ("s1_unilateral", "unilateral", "s1_unilateral_hint"),
         ]:
             col = ctk.CTkFrame(lat_row, fg_color="transparent")
             col.pack(side="left", padx=(0, 28))
             ctk.CTkRadioButton(
-                col, text=text,
+                col, text=t(text_key),
                 variable=self._laterality_var, value=val,
             ).pack(anchor="w")
-            ctk.CTkLabel(col, text=hint,
-                         font=ctk.CTkFont(size=10), text_color="gray"
+            ctk.CTkLabel(col, text=t(hint_key),
+                         font=ctk.CTkFont(size=10), text_color="gray",
                          ).pack(anchor="w", padx=(22, 0))
 
         # ── C: Continue button ────────────────────────────────────────────
         ctk.CTkButton(
-            f, text="Continue to File Import →",
+            f, text=t("s1_continue"),
             height=44, font=ctk.CTkFont(size=14, weight="bold"),
             command=self._go_to_screen_2,
         ).pack(fill="x", pady=(8, 0))
@@ -169,10 +277,13 @@ class App(ctk.CTk):
         selected = [mv for mv, var in self._movement_vars.items() if var.get()]
         if not selected:
             messagebox.showerror(
-                "No movements selected",
-                "Please select at least one movement before continuing.",
+                t("s1_err_no_movements_title"),
+                t("s1_err_no_movements_msg"),
             )
             return
+        # Clear state on real navigation (not language re-render)
+        self._import_rows.clear()
+        self._processed.clear()
         self._show_screen_2(selected)
 
     # ══════════════════════════════════════════════════════════════════════
@@ -180,26 +291,46 @@ class App(ctk.CTk):
     # ══════════════════════════════════════════════════════════════════════
 
     def _show_screen_2(self, selected_movements: list[str]) -> None:
+        self._current_screen = 2
+        self._selected_movements = selected_movements
         self._clear_container()
+
+        # Save loaded states before rebuilding widgets (language re-render)
+        old_state: dict[tuple[str, str], dict] = {}
+        for r in self._import_rows:
+            key = (r["mv_name"], r["side"])
+            saved: dict = {k: v for k, v in r.items() if k not in _ROW_WIDGET_KEYS}
+            # Persist StringVar values as plain strings
+            for sv_key, plain_key in (
+                ("offset_entry_var",  "_offset_entry"),
+                ("offset_left_var",   "_offset_left"),
+                ("offset_right_var",  "_offset_right"),
+            ):
+                if sv_key in r:
+                    saved[plain_key] = r[sv_key].get()
+            saved["_offset_enabled"] = r["offset_var"].get()
+            old_state[key] = saved
         self._import_rows.clear()
-        self._processed.clear()
 
         f = ctk.CTkFrame(self._container, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
-        card_imp = _card(f, "IMPORT C3D FILES  (one file per row)")
+        card_imp = _card(f, t("s2_card_import"))
         card_imp.pack(fill="x", pady=(0, 8))
 
         # Table header
         hdr = ctk.CTkFrame(card_imp, fg_color="transparent")
         hdr.pack(fill="x", padx=12, pady=(0, 4))
-        for text, w in [("Movement", 200), ("Side", 60), ("File", 280),
-                        ("", 80), ("", 30)]:
+        for text, w in [
+            (t("s2_hdr_movement"), 200),
+            (t("s2_hdr_side"),      60),
+            (t("s2_hdr_file"),     280),
+            ("", 80), ("", 30),
+        ]:
             ctk.CTkLabel(hdr, text=text, width=w,
                          font=ctk.CTkFont(size=11, weight="bold"),
                          anchor="w").pack(side="left", padx=2)
 
-        # Scrollable body
         scroll = ctk.CTkScrollableFrame(card_imp, height=320)
         scroll.pack(fill="x", padx=12, pady=(0, 8))
 
@@ -210,57 +341,53 @@ class App(ctk.CTk):
             mv_def = MOVEMENT_DEFINITIONS[mv_name]
             has_prefix = mv_def["has_side_prefix"]
 
-            # Build the list of (side_label, is_bilateral) tuples for this movement.
-            # is_bilateral=True  → one file, both L+R extracted from it
-            # is_bilateral=False → one file per row, single side extracted
             if not has_prefix:
                 row_specs = [(_NO_SIDE, False)]
             elif laterality == "bilateral":
-                row_specs = [("L+R", True)]   # one shared file, two results
-            else:                              # unilateral → separate files
+                row_specs = [("L+R", True)]
+            else:
                 row_specs = [("Left", False), ("Right", False)]
 
             for side_label, is_bilateral in row_specs:
-                # Outer vertical container for main row + offset row
                 row_frame = ctk.CTkFrame(scroll, fg_color="transparent")
                 row_frame.pack(fill="x", pady=3)
 
-                # ── Main info row ──────────────────────────────────────────
                 main_row = ctk.CTkFrame(row_frame, fg_color="transparent")
                 main_row.pack(fill="x")
 
                 ctk.CTkLabel(main_row, text=mv_name, width=200,
-                             anchor="w", font=ctk.CTkFont(size=11)
+                             anchor="w", font=ctk.CTkFont(size=11),
                              ).pack(side="left", padx=2)
                 ctk.CTkLabel(main_row, text=side_label, width=60,
-                             anchor="center", font=ctk.CTkFont(size=11)
+                             anchor="center", font=ctk.CTkFont(size=11),
                              ).pack(side="left", padx=2)
 
                 file_lbl = ctk.CTkLabel(
-                    main_row, text="No file selected", width=280,
+                    main_row, text=t("s2_no_file"), width=280,
                     anchor="w", font=ctk.CTkFont(size=10), text_color="gray",
                 )
                 file_lbl.pack(side="left", padx=2)
 
                 offset_var = ctk.BooleanVar(value=False)
                 row_data: dict = {
-                    "mv_name": mv_name,
-                    "side": side_label,
-                    "bilateral": is_bilateral,
-                    "loaded": False,
-                    "angle_data": None,
-                    "angle_data_left": None,
+                    "mv_name":          mv_name,
+                    "side":             side_label,
+                    "bilateral":        is_bilateral,
+                    "loaded":           False,
+                    "filename":         "",
+                    "angle_data":       None,
+                    "angle_data_left":  None,
                     "angle_data_right": None,
-                    "frame_rate": None,
-                    "events": None,
-                    "file_lbl": file_lbl,
-                    "status_lbl": None,
-                    "offset_var": offset_var,
+                    "frame_rate":       None,
+                    "events":           None,
+                    "file_lbl":         file_lbl,
+                    "status_lbl":       None,
+                    "offset_var":       offset_var,
                 }
                 self._import_rows.append(row_data)
 
                 ctk.CTkButton(
-                    main_row, text="Browse…", width=80,
+                    main_row, text=t("s2_browse"), width=80,
                     command=lambda rd=row_data: self._browse_c3d(rd),
                 ).pack(side="left", padx=4)
 
@@ -271,11 +398,10 @@ class App(ctk.CTk):
                 status_lbl.pack(side="left", padx=2)
                 row_data["status_lbl"] = status_lbl
 
-                # ── Offset correction row (enabled after file load) ────────
+                # ── Offset correction row ──────────────────────────────────
                 offset_row = ctk.CTkFrame(row_frame, fg_color="transparent")
                 offset_row.pack(fill="x", padx=4, pady=(0, 2))
 
-                # Indent to align with file column (movement + side widths)
                 ctk.CTkLabel(offset_row, text="", width=268).pack(side="left")
 
                 if is_bilateral:
@@ -285,9 +411,11 @@ class App(ctk.CTk):
                     row_data["offset_right_var"] = off_right_var
 
                     off_left_entry  = ctk.CTkEntry(
-                        offset_row, textvariable=off_left_var, width=60, state="disabled")
+                        offset_row, textvariable=off_left_var,
+                        width=60, state="disabled")
                     off_right_entry = ctk.CTkEntry(
-                        offset_row, textvariable=off_right_var, width=60, state="disabled")
+                        offset_row, textvariable=off_right_var,
+                        width=60, state="disabled")
 
                     def _make_bilateral_toggle(cb_v, el, er):
                         def _toggle():
@@ -297,16 +425,18 @@ class App(ctk.CTk):
                         return _toggle
 
                     off_cb = ctk.CTkCheckBox(
-                        offset_row, text="Apply offset correction", width=180,
+                        offset_row, text=t("s2_offset_cb"), width=180,
                         variable=offset_var, state="disabled",
-                        command=_make_bilateral_toggle(offset_var, off_left_entry, off_right_entry),
+                        command=_make_bilateral_toggle(
+                            offset_var, off_left_entry, off_right_entry),
                     )
                     off_cb.pack(side="left", padx=(0, 4))
                     ctk.CTkLabel(offset_row, text="L:",
                                  font=ctk.CTkFont(size=10)).pack(side="left")
                     off_left_entry.pack(side="left", padx=2)
                     ctk.CTkLabel(offset_row, text="R:",
-                                 font=ctk.CTkFont(size=10)).pack(side="left", padx=(6, 0))
+                                 font=ctk.CTkFont(size=10)).pack(side="left",
+                                                                  padx=(6, 0))
                     off_right_entry.pack(side="left", padx=2)
                     row_data["offset_cb"]          = off_cb
                     row_data["offset_left_entry"]  = off_left_entry
@@ -315,15 +445,17 @@ class App(ctk.CTk):
                     off_entry_var = ctk.StringVar(value="0.0")
                     row_data["offset_entry_var"] = off_entry_var
                     off_entry = ctk.CTkEntry(
-                        offset_row, textvariable=off_entry_var, width=70, state="disabled")
+                        offset_row, textvariable=off_entry_var,
+                        width=70, state="disabled")
 
                     def _make_toggle(cb_v, entry):
                         def _toggle():
-                            entry.configure(state="normal" if cb_v.get() else "disabled")
+                            entry.configure(
+                                state="normal" if cb_v.get() else "disabled")
                         return _toggle
 
                     off_cb = ctk.CTkCheckBox(
-                        offset_row, text="Apply offset correction", width=180,
+                        offset_row, text=t("s2_offset_cb"), width=180,
                         variable=offset_var, state="disabled",
                         command=_make_toggle(offset_var, off_entry),
                     )
@@ -333,33 +465,67 @@ class App(ctk.CTk):
                     row_data["offset_entry"] = off_entry
 
                 ctk.CTkLabel(
-                    offset_row,
-                    text="Enter the angle value at neutral position (0°)."
-                         " This value will be subtracted from the entire curve.",
+                    offset_row, text=t("s2_offset_hint"),
                     font=ctk.CTkFont(size=9), text_color="gray",
                 ).pack(side="left", padx=(6, 0))
+
+                # Restore state if this row had a loaded file before re-render
+                self._restore_row_state(row_data, old_state.get(
+                    (mv_name, side_label)))
 
         # Navigation buttons
         nav = ctk.CTkFrame(f, fg_color="transparent")
         nav.pack(fill="x", pady=(8, 0))
 
         ctk.CTkButton(
-            nav, text="← Back to Configuration", width=180,
+            nav, text=t("s2_back"), width=200,
             command=self._show_screen_1,
         ).pack(side="left")
 
         self._process_btn = ctk.CTkButton(
-            nav, text="Process All →",
+            nav, text=t("s2_process"),
             height=40, width=160,
             font=ctk.CTkFont(size=13, weight="bold"),
             state="disabled",
             command=self._start_segmentation,
         )
         self._process_btn.pack(side="right")
+        self._update_process_btn()
+
+    def _restore_row_state(self, row_data: dict, old: dict | None) -> None:
+        """Re-apply a previously loaded file's state to newly built widgets."""
+        if old is None or not old.get("loaded"):
+            return
+
+        for field in ("loaded", "filename", "angle_data", "angle_data_left",
+                      "angle_data_right", "frame_rate", "events"):
+            if field in old:
+                row_data[field] = old[field]
+
+        # Restore offset values
+        row_data["offset_var"].set(old.get("_offset_enabled", False))
+        if "_offset_entry" in old and "offset_entry_var" in row_data:
+            row_data["offset_entry_var"].set(old["_offset_entry"])
+        if "_offset_left" in old and "offset_left_var" in row_data:
+            row_data["offset_left_var"].set(old["_offset_left"])
+        if "_offset_right" in old and "offset_right_var" in row_data:
+            row_data["offset_right_var"].set(old["_offset_right"])
+
+        # Update widgets to reflect loaded state
+        fname = old.get("filename", "…")
+        row_data["file_lbl"].configure(text=fname, text_color="white")
+        row_data["status_lbl"].configure(text="✓", text_color="#4CAF50")
+        if "offset_cb" in row_data:
+            row_data["offset_cb"].configure(state="normal")
+            if old.get("_offset_enabled"):
+                for entry_key in ("offset_entry", "offset_left_entry",
+                                  "offset_right_entry"):
+                    if entry_key in row_data:
+                        row_data[entry_key].configure(state="normal")
 
     def _browse_c3d(self, row_data: dict) -> None:
         path = filedialog.askopenfilename(
-            title=f"C3D for {row_data['mv_name']} — {row_data['side']}",
+            title=f"C3D — {row_data['mv_name']} / {row_data['side']}",
             filetypes=[("C3D files", "*.c3d"), ("All files", "*.*")],
         )
         if not path:
@@ -371,55 +537,59 @@ class App(ctk.CTk):
         try:
             c3d_data = read_c3d(path)
         except Exception as exc:
-            messagebox.showerror("Load error", f"Could not read C3D file:\n{exc}")
+            messagebox.showerror(
+                t("s2_load_error_title"),
+                t("s2_load_error_msg").format(exc=exc),
+            )
             return
 
-        mv_def = MOVEMENT_DEFINITIONS[row_data["mv_name"]]
-        has_prefix = mv_def["has_side_prefix"]
-        component = mv_def["component"]
-        sulm_var = mv_def["sulm_variable"]
+        mv_def      = MOVEMENT_DEFINITIONS[row_data["mv_name"]]
+        has_prefix  = mv_def["has_side_prefix"]
+        component   = mv_def["component"]
+        sulm_var    = mv_def["sulm_variable"]
         model_outputs = c3d_data["model_outputs"]
         fname = os.path.basename(path)
 
         if row_data["bilateral"]:
-            # Bilateral: extract Left AND Right from the same file
             var_left  = f"Left{sulm_var}"
             var_right = f"Right{sulm_var}"
-            missing = [v for v in (var_left, var_right) if v not in model_outputs]
+            missing = [v for v in (var_left, var_right)
+                       if v not in model_outputs]
             if missing:
                 available = list_available_angles(c3d_data)
                 messagebox.showwarning(
-                    "Variable(s) not found",
-                    f"The following expected label(s) were not found in this C3D:\n"
-                    f"  {chr(10).join(missing)}\n\n"
-                    f"Available angle outputs:\n  "
-                    + "\n  ".join(available),
+                    t("s2_vars_not_found_title"),
+                    t("s2_vars_not_found_msg").format(
+                        missing="\n  ".join(missing),
+                        available="\n  ".join(available),
+                    ),
                 )
                 return
-            row_data["angle_data_left"]  = model_outputs[var_left][component, :].astype(float)
-            row_data["angle_data_right"] = model_outputs[var_right][component, :].astype(float)
-            row_data["angle_data"]       = row_data["angle_data_left"]  # convenience alias
+            row_data["angle_data_left"]  = (
+                model_outputs[var_left][component, :].astype(float))
+            row_data["angle_data_right"] = (
+                model_outputs[var_right][component, :].astype(float))
+            row_data["angle_data"] = row_data["angle_data_left"]
 
         else:
-            # Unilateral or no-prefix: extract the single expected variable
             side = row_data["side"]
-            if has_prefix and side != _NO_SIDE:
-                full_var = f"{side}{sulm_var}"   # "Left<var>" or "Right<var>"
-            else:
-                full_var = sulm_var
-
+            full_var = (f"{side}{sulm_var}"
+                        if has_prefix and side != _NO_SIDE else sulm_var)
             if full_var not in model_outputs:
                 available = list_available_angles(c3d_data)
                 messagebox.showwarning(
-                    "Variable not found",
-                    f"Expected label  '{full_var}'  was not found in this C3D file.\n\n"
-                    f"Available angle outputs:\n  "
-                    + "\n  ".join(available),
+                    t("s2_var_not_found_title"),
+                    t("s2_var_not_found_msg").format(
+                        label=full_var,
+                        available="\n  ".join(available),
+                    ),
                 )
                 return
-            row_data["angle_data"] = model_outputs[full_var][component, :].astype(float)
+            row_data["angle_data"] = (
+                model_outputs[full_var][component, :].astype(float))
 
         row_data["loaded"]     = True
+        row_data["filename"]   = fname
         row_data["frame_rate"] = c3d_data["frame_rate"]
         row_data["events"]     = c3d_data.get("events", [])
 
@@ -452,34 +622,40 @@ class App(ctk.CTk):
 
             if row_data["bilateral"]:
                 try:
-                    off_l = float(row_data["offset_left_var"].get()) if offset_on else 0.0
+                    off_l = (float(row_data["offset_left_var"].get())
+                             if offset_on else 0.0)
                 except (ValueError, KeyError):
                     off_l = 0.0
                 try:
-                    off_r = float(row_data["offset_right_var"].get()) if offset_on else 0.0
+                    off_r = (float(row_data["offset_right_var"].get())
+                             if offset_on else 0.0)
                 except (ValueError, KeyError):
                     off_r = 0.0
 
                 sides_to_seg: list[tuple] = [
                     ("Left",
-                     apply_offset(row_data["angle_data_left"], off_l) if offset_on
-                     else row_data["angle_data_left"],
+                     apply_offset(row_data["angle_data_left"], off_l)
+                     if offset_on else row_data["angle_data_left"],
                      off_l if offset_on else None),
                     ("Right",
-                     apply_offset(row_data["angle_data_right"], off_r) if offset_on
-                     else row_data["angle_data_right"],
+                     apply_offset(row_data["angle_data_right"], off_r)
+                     if offset_on else row_data["angle_data_right"],
                      off_r if offset_on else None),
                 ]
             else:
                 try:
-                    off = float(row_data["offset_entry_var"].get()) if offset_on else 0.0
+                    off = (float(row_data["offset_entry_var"].get())
+                           if offset_on else 0.0)
                 except (ValueError, KeyError):
                     off = 0.0
-                ang = apply_offset(row_data["angle_data"], off) if offset_on else row_data["angle_data"]
-                sides_to_seg = [(row_data["side"], ang, off if offset_on else None)]
+                ang = (apply_offset(row_data["angle_data"], off)
+                       if offset_on else row_data["angle_data"])
+                sides_to_seg = [(row_data["side"], ang,
+                                 off if offset_on else None)]
 
             for side, angle_arr, offset_val in sides_to_seg:
-                title = f"{mv_name} — {side}" if side != _NO_SIDE else mv_name
+                title = (f"{mv_name} — {side}"
+                         if side != _NO_SIDE else mv_name)
 
                 win = C3DSegmentationWindow(
                     self,
@@ -498,17 +674,18 @@ class App(ctk.CTk):
                         "angle_data": angle_arr,
                         "frame_rate": frame_rate,
                         "offset":     offset_val,
-                        "extended":   compute_extended_stats_array(angle_arr, segs),
+                        "extended":   compute_extended_stats_array(
+                            angle_arr, segs),
                         **win.result,
                     }
                 else:
-                    logger.info("Segmentation cancelled for '%s' — %s.", mv_name, side)
+                    logger.info("Segmentation cancelled for '%s' — %s.",
+                                mv_name, side)
 
         if not self._processed:
             messagebox.showinfo(
-                "No results",
-                "No movements were successfully segmented. "
-                "Returning to the import screen.",
+                t("s3_no_results_title"),
+                t("s3_no_results_msg"),
             )
             return
 
@@ -519,6 +696,7 @@ class App(ctk.CTk):
     # ══════════════════════════════════════════════════════════════════════
 
     def _show_screen_4(self) -> None:
+        self._current_screen = 4
         self._clear_container()
         self._layout_vertical = True
 
@@ -530,19 +708,21 @@ class App(ctk.CTk):
         top_bar.pack(fill="x", pady=(0, 4))
 
         self._layout_toggle_btn = ctk.CTkButton(
-            top_bar, text="⬌ Horizontal layout", width=190,
+            top_bar, text=t("s4_layout_horizontal"), width=190,
             command=self._toggle_layout,
         )
         self._layout_toggle_btn.pack(side="right")
 
-        # ── Content area (table + chart, reorganised by toggle) ────────────
+        # ── Content area ──────────────────────────────────────────────────
         self._layout_content = ctk.CTkFrame(f, fg_color="transparent")
         self._layout_content.pack(fill="both", expand=True)
 
-        self._layout_card_tbl = _card(self._layout_content, "RESULTS")
+        self._layout_card_tbl   = _card(self._layout_content,
+                                        t("s4_card_results"))
         self._build_summary_table(self._layout_card_tbl)
 
-        self._layout_card_chart = _card(self._layout_content, "ROM OVERVIEW")
+        self._layout_card_chart = _card(self._layout_content,
+                                        t("s4_card_overview"))
         self._build_rom_chart(self._layout_card_chart)
 
         self._apply_layout()
@@ -552,16 +732,16 @@ class App(ctk.CTk):
         btn_row.pack(fill="x", pady=(6, 0))
 
         ctk.CTkButton(
-            btn_row, text="Export CSV", width=130,
+            btn_row, text=t("s4_export_csv"), width=130,
             command=self._export_csv,
         ).pack(side="left")
         ctk.CTkButton(
-            btn_row, text="New Analysis →", width=150,
+            btn_row, text=t("s4_new_analysis"), width=160,
             font=ctk.CTkFont(weight="bold"),
             command=self._new_analysis,
         ).pack(side="right")
         ctk.CTkButton(
-            btn_row, text="Generate Report", width=150,
+            btn_row, text=t("s4_generate_report"), width=160,
             command=self._generate_report,
         ).pack(side="right", padx=4)
 
@@ -581,10 +761,9 @@ class App(ctk.CTk):
 
             card_tbl.grid(row=0, column=0, columnspan=2,
                           sticky="nsew", pady=(0, 4))
-            card_chart.grid(row=1, column=0, columnspan=2,
-                            sticky="nsew")
+            card_chart.grid(row=1, column=0, columnspan=2, sticky="nsew")
 
-            self._layout_toggle_btn.configure(text="⬌ Horizontal layout")
+            self._layout_toggle_btn.configure(text=t("s4_layout_horizontal"))
         else:
             content.grid_rowconfigure(0, weight=1, minsize=0)
             content.grid_rowconfigure(1, weight=0, minsize=0)
@@ -594,49 +773,59 @@ class App(ctk.CTk):
             card_tbl.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
             card_chart.grid(row=0, column=1, sticky="nsew")
 
-            self._layout_toggle_btn.configure(text="⬍ Vertical layout")
+            self._layout_toggle_btn.configure(text=t("s4_layout_vertical"))
 
     def _toggle_layout(self) -> None:
         self._layout_vertical = not self._layout_vertical
         self._apply_layout()
 
     def _build_summary_table(self, parent: ctk.CTkFrame) -> None:
-        headers = ["Movement", "Side", "Metric", "N", "Mean (°)", "SD (°)", "Min (°)", "Max (°)"]
-        col_w   = [180,       55,     65,        36,  70,         60,        60,        60]
+        headers = [
+            t("s4_hdr_movement"), t("s4_hdr_side"), t("s4_hdr_metric"),
+            t("s4_hdr_n"),        t("s4_hdr_mean"),  t("s4_hdr_sd"),
+            t("s4_hdr_min"),      t("s4_hdr_max"),
+        ]
+        col_w = [180, 55, 65, 36, 70, 60, 60, 60]
 
         scroll = ctk.CTkScrollableFrame(parent, height=200)
         scroll.pack(fill="both", expand=True, padx=12, pady=(0, 4))
 
-        # Header row
         for c, (h, w) in enumerate(zip(headers, col_w)):
             ctk.CTkLabel(scroll, text=h, width=w,
                          font=ctk.CTkFont(size=11, weight="bold"),
-                         anchor="w").grid(row=0, column=c, padx=2, pady=2, sticky="w")
+                         anchor="w").grid(row=0, column=c, padx=2, pady=2,
+                                          sticky="w")
 
         row_idx = 1
         offset_notes: list[str] = []
 
-        for group_idx, ((mv_name, side), data) in enumerate(self._processed.items()):
+        metric_labels = [
+            (t("s4_metric_rom"),    "rom"),
+            (t("s4_metric_peak"),   "peak"),
+            (t("s4_metric_valley"), "valley"),
+        ]
+
+        for group_idx, ((mv_name, side), data) in enumerate(
+                self._processed.items()):
             extended   = data.get("extended", {})
             offset_val = data.get("offset")
 
             if offset_val is not None:
                 offset_notes.append(
-                    f"{mv_name} ({side}): {offset_val:.1f}° subtracted"
+                    f"{mv_name} ({side}): "
+                    + t("s4_offset_subtracted").format(offset=offset_val)
                 )
 
             bg = "#2A2D2E" if group_idx % 2 == 0 else "transparent"
 
-            for sub_idx, (metric_label, stats) in enumerate([
-                ("ROM",    extended.get("rom",    {})),
-                ("Peak",   extended.get("peak",   {})),
-                ("Valley", extended.get("valley", {})),
-            ]):
-                values  = stats.get("values", [])
-                mean_v  = stats.get("mean", float("nan"))
-                sd_v    = stats.get("sd",   0.0)
-                min_v   = stats.get("min",  float("nan"))
-                max_v   = stats.get("max",  float("nan"))
+            for sub_idx, (metric_label, metric_key) in enumerate(
+                    metric_labels):
+                stats  = extended.get(metric_key, {})
+                values = stats.get("values", [])
+                mean_v = stats.get("mean", float("nan"))
+                sd_v   = stats.get("sd",   0.0)
+                min_v  = stats.get("min",  float("nan"))
+                max_v  = stats.get("max",  float("nan"))
 
                 row_vals = [
                     mv_name if sub_idx == 0 else "",
@@ -653,12 +842,12 @@ class App(ctk.CTk):
                     ctk.CTkLabel(scroll, text=val, width=w,
                                  font=ctk.CTkFont(size=11), anchor="w",
                                  fg_color=bg).grid(row=row_idx, column=c,
-                                                   padx=2, pady=1, sticky="w")
+                                                   padx=2, pady=1,
+                                                   sticky="w")
                 row_idx += 1
 
-        # Offset footnote
         if offset_notes:
-            note = ("* Offset correction applied (neutral position calibration): "
+            note = (t("s4_offset_note_prefix")
                     + "; ".join(offset_notes) + ".")
             ctk.CTkLabel(parent, text=note,
                          font=ctk.CTkFont(size=9), text_color="gray",
@@ -668,23 +857,23 @@ class App(ctk.CTk):
     def _build_rom_chart(self, parent: ctk.CTkFrame) -> None:
         from plotting import plot_rom_summary
 
-        # Build a flat string-keyed dict for the plotting function.
-        # Key format: "Movement\n(Side)" for bilateral, "Movement" for no-side rows.
         chart_data: dict[str, dict] = {}
         for (mv_name, side), data in self._processed.items():
             key = f"{mv_name}\n({side})" if side != _NO_SIDE else mv_name
             chart_data[key] = data
 
         try:
-            # Pass an empty normative dict — normative lines are not meaningful
-            # when keys are composite strings; avoids accidental type errors.
             fig = plot_rom_summary(chart_data, normative={})
             canvas = FigureCanvasTkAgg(fig, master=parent)
             canvas.draw()
-            canvas.get_tk_widget().pack(fill="both", expand=True, padx=12, pady=(0, 8))
+            canvas.get_tk_widget().pack(fill="both", expand=True,
+                                        padx=12, pady=(0, 8))
         except Exception as exc:
-            ctk.CTkLabel(parent, text=f"Chart unavailable: {exc}",
-                         text_color="gray").pack(padx=12, pady=4)
+            ctk.CTkLabel(
+                parent,
+                text=t("s4_chart_unavailable").format(exc=exc),
+                text_color="gray",
+            ).pack(padx=12, pady=4)
 
     # ── Export ─────────────────────────────────────────────────────────────
 
@@ -693,7 +882,7 @@ class App(ctk.CTk):
             return
 
         out_path = filedialog.asksaveasfilename(
-            title="Save CSV",
+            title=t("s4_csv_dialog_title"),
             defaultextension=".csv",
             filetypes=[("CSV", "*.csv")],
             initialfile="ROM_Summary.csv",
@@ -707,14 +896,16 @@ class App(ctk.CTk):
             offset_val = data.get("offset")
 
             for metric_key, metric_label in (
-                ("rom", "ROM"), ("peak", "Peak"), ("valley", "Valley")
+                ("rom",    t("s4_metric_rom")),
+                ("peak",   t("s4_metric_peak")),
+                ("valley", t("s4_metric_valley")),
             ):
                 stats  = extended.get(metric_key, {})
                 values = stats.get("values", [])
-                m      = stats.get("mean", float("nan"))
-                s      = stats.get("sd",   0.0)
-                mn     = stats.get("min",  float("nan"))
-                mx     = stats.get("max",  float("nan"))
+                m  = stats.get("mean", float("nan"))
+                s  = stats.get("sd",   0.0)
+                mn = stats.get("min",  float("nan"))
+                mx = stats.get("max",  float("nan"))
 
                 rows.append({
                     "Movement":   mv_name,
@@ -726,14 +917,16 @@ class App(ctk.CTk):
                     "Min_deg":    round(mn, 2) if not math.isnan(mn) else None,
                     "Max_deg":    round(mx, 2) if not math.isnan(mx) else None,
                     "Values_deg": ";".join(
-                        f"{v:.2f}" if not math.isnan(v) else "nan" for v in values
+                        f"{v:.2f}" if not math.isnan(v) else "nan"
+                        for v in values
                     ),
-                    "Offset_deg": f"{offset_val:.2f}" if offset_val is not None else "",
+                    "Offset_deg": (f"{offset_val:.2f}"
+                                   if offset_val is not None else ""),
                 })
 
         pd.DataFrame(rows).to_csv(out_path, index=False)
 
-        msg = f"CSV saved:\n{out_path}"
+        msg = t("s4_csv_saved_msg").format(path=out_path)
         offset_entries = [
             (mv, sd, d["offset"])
             for (mv, sd), d in self._processed.items()
@@ -741,14 +934,16 @@ class App(ctk.CTk):
         ]
         if offset_entries:
             notes = [
-                f"  {mv} ({sd}): {off:.1f}° subtracted (neutral position calibration)"
+                t("s4_csv_offset_entry").format(mv=mv, sd=sd, off=off)
                 for mv, sd, off in offset_entries
             ]
-            msg += "\n\nOffset correction applied:\n" + "\n".join(notes)
-        messagebox.showinfo("Saved", msg)
+            msg += t("s4_csv_offset_applied").format(
+                notes="\n".join(notes))
+        messagebox.showinfo(t("s4_csv_saved_title"), msg)
 
     def _generate_report(self) -> None:
-        messagebox.showinfo("Coming soon", "Report generation will be available in a future version.")
+        messagebox.showinfo(t("s4_report_coming_title"),
+                            t("s4_report_coming_msg"))
 
     def _new_analysis(self) -> None:
         self._import_rows.clear()

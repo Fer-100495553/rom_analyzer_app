@@ -10,6 +10,8 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from tkinter import messagebox
 
+from translations import t
+
 logger = logging.getLogger(__name__)
 
 # ── Palette ────────────────────────────────────────────────────────────────
@@ -166,7 +168,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         on_accept: Callable[[dict], None] | None = None,
     ) -> None:
         super().__init__(parent)
-        self.title(f"Segmentation — {movement_name}")
+        self.title(f"{t('seg_window_title')} — {movement_name}")
         self.geometry("1020x720")
         self.grab_set()
         self.lift()
@@ -221,9 +223,14 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         mode_bar = ctk.CTkFrame(self)
         mode_bar.pack(fill="x", padx=10, pady=(6, 0))
 
-        ctk.CTkLabel(mode_bar, text="Mode:", font=ctk.CTkFont(weight="bold")).pack(
+        ctk.CTkLabel(mode_bar, text=t("seg_mode_label"),
+                     font=ctk.CTkFont(weight="bold")).pack(
             side="left", padx=(8, 4))
-        for txt, val in [("Auto-detect", "auto"), ("Manual", "manual"), ("From Events", "events")]:
+        for txt, val in [
+            (t("seg_mode_auto"), "auto"),
+            (t("seg_mode_manual"), "manual"),
+            (t("seg_mode_events"), "events"),
+        ]:
             ctk.CTkRadioButton(
                 mode_bar, text=txt, variable=self._mode_var, value=val,
                 command=self._switch_mode,
@@ -243,7 +250,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         stats_frame.pack(fill="x", padx=10, pady=(0, 4))
         self._stats_lbl = ctk.CTkLabel(
             stats_frame,
-            text="  No segments yet.",
+            text=f"  {t('seg_no_segments')}",
             font=ctk.CTkFont(size=11),
             justify="left",
         )
@@ -254,17 +261,17 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         btn_bar.pack(fill="x", padx=10, pady=(0, 10))
 
         ctk.CTkButton(
-            btn_bar, text="Accept & Continue",
+            btn_bar, text=t("seg_accept"),
             fg_color="#2D7A2D", hover_color="#1F5C1F",
             font=ctk.CTkFont(weight="bold"), width=160,
             command=self._accept,
         ).pack(side="right", padx=8, pady=6)
         ctk.CTkButton(
-            btn_bar, text="Cancel", width=90,
+            btn_bar, text=t("seg_cancel"), width=90,
             command=self.destroy,
         ).pack(side="right", pady=6)
         ctk.CTkButton(
-            btn_bar, text="Reset", width=90,
+            btn_bar, text=t("seg_reset"), width=90,
             command=self._reset,
         ).pack(side="left", padx=8, pady=6)
 
@@ -279,7 +286,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         # Prominence row
         row1 = ctk.CTkFrame(f, fg_color="transparent")
         row1.pack(fill="x", padx=6, pady=(4, 0))
-        ctk.CTkLabel(row1, text="Prominence (°):", width=120).pack(side="left")
+        ctk.CTkLabel(row1, text=t("seg_prominence"), width=120).pack(side="left")
         self._prom_var = ctk.DoubleVar(value=DEFAULT_PROMINENCE)
         self._prom_lbl = ctk.CTkLabel(row1, text=f"{DEFAULT_PROMINENCE:.0f}°", width=36)
         slider_p = ctk.CTkSlider(
@@ -292,7 +299,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         # Min distance row
         row2 = ctk.CTkFrame(f, fg_color="transparent")
         row2.pack(fill="x", padx=6, pady=(2, 0))
-        ctk.CTkLabel(row2, text="Min distance (fr):", width=120).pack(side="left")
+        ctk.CTkLabel(row2, text=t("seg_min_distance"), width=120).pack(side="left")
         self._dist_var = ctk.IntVar(value=DEFAULT_MIN_DISTANCE)
         self._dist_lbl = ctk.CTkLabel(row2, text=f"{DEFAULT_MIN_DISTANCE}", width=36)
         slider_d = ctk.CTkSlider(
@@ -305,14 +312,16 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         # Cycle type + detect button
         row3 = ctk.CTkFrame(f, fg_color="transparent")
         row3.pack(fill="x", padx=6, pady=(4, 4))
-        ctk.CTkLabel(row3, text="Cycle from:", width=80).pack(side="left")
+        ctk.CTkLabel(row3, text=t("seg_cycle_from"), width=80).pack(side="left")
         self._cycle_var = ctk.StringVar(value="valley")
-        ctk.CTkRadioButton(row3, text="Valley→Valley", variable=self._cycle_var,
+        ctk.CTkRadioButton(row3, text=t("seg_valley_valley"),
+                           variable=self._cycle_var,
                            value="valley").pack(side="left", padx=6)
-        ctk.CTkRadioButton(row3, text="Peak→Peak", variable=self._cycle_var,
+        ctk.CTkRadioButton(row3, text=t("seg_peak_peak"),
+                           variable=self._cycle_var,
                            value="peak").pack(side="left", padx=4)
         ctk.CTkButton(
-            row3, text="Detect", width=80,
+            row3, text=t("seg_detect"), width=80,
             command=self._run_auto_detection,
         ).pack(side="right", padx=8)
 
@@ -324,16 +333,15 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         row.pack(fill="x", padx=6, pady=6)
         ctk.CTkLabel(
             row,
-            text="Left-click = add marker (alternating start/end)  ·  "
-                 "Right-click = remove nearest marker",
+            text=t("seg_manual_hint"),
             font=ctk.CTkFont(size=11), text_color="gray",
         ).pack(side="left")
-        ctk.CTkButton(row, text="Undo", width=70, command=self._manual_undo).pack(
-            side="right", padx=4)
-        ctk.CTkButton(row, text="Clear", width=70, command=self._manual_clear).pack(
-            side="right", padx=4)
+        ctk.CTkButton(row, text=t("seg_undo"), width=70,
+                      command=self._manual_undo).pack(side="right", padx=4)
+        ctk.CTkButton(row, text=t("seg_clear"), width=70,
+                      command=self._manual_clear).pack(side="right", padx=4)
         self._manual_status = ctk.CTkLabel(
-            f, text="  0 markers placed.", font=ctk.CTkFont(size=11))
+            f, text=t("seg_initial_markers"), font=ctk.CTkFont(size=11))
         self._manual_status.pack(anchor="w", padx=8)
         return f
 
@@ -341,7 +349,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         f = ctk.CTkFrame(parent, fg_color="transparent")
         if not self._events:
             ctk.CTkLabel(
-                f, text="  No events found in this C3D file.",
+                f, text=t("seg_no_events"),
                 text_color="gray",
             ).pack(anchor="w", padx=8, pady=8)
             return f
@@ -350,17 +358,17 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
 
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x", padx=6, pady=6)
-        ctk.CTkLabel(row, text="Start event:", width=90).pack(side="left")
+        ctk.CTkLabel(row, text=t("seg_start_event"), width=90).pack(side="left")
         self._ev_start_var = ctk.StringVar(
             value=unique_labels[0] if unique_labels else "")
         ctk.CTkOptionMenu(row, values=unique_labels, variable=self._ev_start_var,
                           width=140).pack(side="left", padx=4)
-        ctk.CTkLabel(row, text="End event:", width=80).pack(side="left", padx=(12, 0))
+        ctk.CTkLabel(row, text=t("seg_end_event"), width=80).pack(side="left", padx=(12, 0))
         self._ev_end_var = ctk.StringVar(
             value=unique_labels[-1] if len(unique_labels) > 1 else unique_labels[0])
         ctk.CTkOptionMenu(row, values=unique_labels, variable=self._ev_end_var,
                           width=140).pack(side="left", padx=4)
-        ctk.CTkButton(row, text="Map Events", width=100,
+        ctk.CTkButton(row, text=t("seg_map_events"), width=110,
                       command=self._map_events).pack(side="right", padx=8)
 
         info = ", ".join(
@@ -498,7 +506,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
             segs, peaks, valleys = auto_segment(
                 self._angle_data, prom, dist, cycle_from=cycle)
         except Exception as exc:
-            messagebox.showerror("Detection error", str(exc), parent=self)
+            messagebox.showerror(t("seg_detect_error"), str(exc), parent=self)
             return
 
         self._auto_segments = segs
@@ -524,13 +532,13 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         self._marker_artists.clear()
         self._draw_base_curve()
         self._update_manual_status()
-        self._stats_lbl.configure(text="  No segments yet.")
+        self._stats_lbl.configure(text=f"  {t('seg_no_segments')}")
 
     def _update_manual_status(self) -> None:
         n = len(self._markers)
         pairs = n // 2
         self._manual_status.configure(
-            text=f"  {n} markers placed → {pairs} complete repetition(s).")
+            text=t("seg_markers_placed").format(n=n, pairs=pairs))
 
     def _compute_and_show_stats_manual(self) -> None:
         pairs = list(zip(self._markers[::2], self._markers[1::2]))
@@ -573,8 +581,9 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
 
         if not segs:
             messagebox.showwarning(
-                "No segments",
-                f"No complete pairs found between '{start_label}' and '{end_label}'.",
+                t("seg_no_pairs_title"),
+                t("seg_no_pairs_msg").format(
+                    start=start_label, end=end_label),
                 parent=self,
             )
             self._canvas.draw_idle()
@@ -593,7 +602,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         roms: list[float],
     ) -> None:
         if not segments:
-            self._stats_lbl.configure(text="  No segments yet.")
+            self._stats_lbl.configure(text=f"  {t('seg_no_segments')}")
             return
 
         valid = [r for r in roms if not np.isnan(r)]
@@ -620,8 +629,8 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
 
         if not self._segments:
             messagebox.showwarning(
-                "No segments",
-                "Please detect or mark at least one repetition before accepting.",
+                t("seg_accept_warn_title"),
+                t("seg_accept_warn_msg"),
                 parent=self,
             )
             return
@@ -642,9 +651,9 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         self._markers.clear()
         self._marker_artists.clear()
         self._draw_base_curve()
-        self._stats_lbl.configure(text="  No segments yet.")
+        self._stats_lbl.configure(text=f"  {t('seg_no_segments')}")
         if hasattr(self, "_manual_status"):
-            self._manual_status.configure(text="  0 markers placed.")
+            self._manual_status.configure(text=t("seg_initial_markers"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════

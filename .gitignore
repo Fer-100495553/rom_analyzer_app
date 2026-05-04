@@ -8,3 +8,4 @@ build/
 *.exe
 .env
 desktop.ini
+.settings.json
