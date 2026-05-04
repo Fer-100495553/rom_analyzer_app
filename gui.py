@@ -66,6 +66,8 @@ class App(ctk.CTk):
         # ── Persistent session state ──────────────────────────────────────
         self._movement_vars: dict[str, ctk.BooleanVar] = {}
         self._laterality_var = ctk.StringVar(value="bilateral")
+        self._recording_type_var = ctk.StringVar(value="continuous")
+        self._num_reps_var = ctk.IntVar(value=6)
         self._import_rows: list[dict] = []
         self._process_btn: ctk.CTkButton | None = None
         self._processed: dict[tuple[str, str], dict] = {}
@@ -256,7 +258,56 @@ class App(ctk.CTk):
                          font=ctk.CTkFont(size=10), text_color="gray",
                          ).pack(anchor="w", padx=(22, 0))
 
-        # ── C: Continue button ────────────────────────────────────────────
+        # ── C: Recording Type ─────────────────────────────────────────────
+        card_rec = _card(f, t("s1_card_recording_type"))
+        card_rec.pack(fill="x", pady=(0, 8))
+
+        rec_row = ctk.CTkFrame(card_rec, fg_color="transparent")
+        rec_row.pack(anchor="w", padx=12, pady=(0, 6))
+
+        for text_key, val, hint_key in [
+            ("s1_rec_continuous", "continuous", "s1_rec_continuous_hint"),
+            ("s1_rec_individual", "individual", "s1_rec_individual_hint"),
+        ]:
+            col = ctk.CTkFrame(rec_row, fg_color="transparent")
+            col.pack(side="left", padx=(0, 28))
+            ctk.CTkRadioButton(
+                col, text=t(text_key),
+                variable=self._recording_type_var, value=val,
+                command=self._on_recording_type_change,
+            ).pack(anchor="w")
+            ctk.CTkLabel(col, text=t(hint_key),
+                         font=ctk.CTkFont(size=10), text_color="gray",
+                         ).pack(anchor="w", padx=(22, 0))
+
+        self._num_reps_row = ctk.CTkFrame(card_rec, fg_color="transparent")
+        self._num_reps_row.pack(anchor="w", padx=12, pady=(0, 8))
+
+        ctk.CTkLabel(
+            self._num_reps_row, text=t("s1_num_reps_label"),
+            font=ctk.CTkFont(size=11),
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(self._num_reps_row, text="  ", width=4).pack(side="left")
+        ctk.CTkButton(
+            self._num_reps_row, text="−", width=28, height=28,
+            command=lambda: self._num_reps_var.set(
+                max(1, self._num_reps_var.get() - 1)),
+        ).pack(side="left")
+        self._num_reps_lbl = ctk.CTkLabel(
+            self._num_reps_row, textvariable=self._num_reps_var,
+            width=32, font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self._num_reps_lbl.pack(side="left", padx=4)
+        ctk.CTkButton(
+            self._num_reps_row, text="+", width=28, height=28,
+            command=lambda: self._num_reps_var.set(
+                min(10, self._num_reps_var.get() + 1)),
+        ).pack(side="left")
+
+        self._on_recording_type_change()
+
+        # ── D: Continue button ────────────────────────────────────────────
         ctk.CTkButton(
             f, text=t("s1_continue"),
             height=44, font=ctk.CTkFont(size=14, weight="bold"),
@@ -272,6 +323,15 @@ class App(ctk.CTk):
     def _deselect_all(self) -> None:
         for var in self._movement_vars.values():
             var.set(False)
+
+    def _on_recording_type_change(self) -> None:
+        is_individual = self._recording_type_var.get() == "individual"
+        state = "normal" if is_individual else "disabled"
+        for w in self._num_reps_row.winfo_children():
+            try:
+                w.configure(state=state)
+            except Exception:
+                pass
 
     def _go_to_screen_2(self) -> None:
         selected = [mv for mv, var in self._movement_vars.items() if var.get()]
@@ -295,12 +355,14 @@ class App(ctk.CTk):
         self._selected_movements = selected_movements
         self._clear_container()
 
+        is_individual = self._recording_type_var.get() == "individual"
+        num_reps = self._num_reps_var.get() if is_individual else 1
+
         # Save loaded states before rebuilding widgets (language re-render)
-        old_state: dict[tuple[str, str], dict] = {}
+        old_state: dict[tuple, dict] = {}
         for r in self._import_rows:
-            key = (r["mv_name"], r["side"])
+            key = (r["mv_name"], r["side"], r.get("rep_idx", 0))
             saved: dict = {k: v for k, v in r.items() if k not in _ROW_WIDGET_KEYS}
-            # Persist StringVar values as plain strings
             for sv_key, plain_key in (
                 ("offset_entry_var",  "_offset_entry"),
                 ("offset_left_var",   "_offset_left"),
@@ -315,18 +377,25 @@ class App(ctk.CTk):
         f = ctk.CTkFrame(self._container, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
-        card_imp = _card(f, t("s2_card_import"))
+        card_title = (t("s2_card_import_individual") if is_individual
+                      else t("s2_card_import"))
+        card_imp = _card(f, card_title)
         card_imp.pack(fill="x", pady=(0, 8))
 
         # Table header
         hdr = ctk.CTkFrame(card_imp, fg_color="transparent")
         hdr.pack(fill="x", padx=12, pady=(0, 4))
-        for text, w in [
-            (t("s2_hdr_movement"), 200),
+        hdr_cols = [
+            (t("s2_hdr_movement"), 160),
             (t("s2_hdr_side"),      60),
-            (t("s2_hdr_file"),     280),
+        ]
+        if is_individual:
+            hdr_cols.append(("Rep", 46))
+        hdr_cols += [
+            (t("s2_hdr_file"), 260),
             ("", 80), ("", 30),
-        ]:
+        ]
+        for text, w in hdr_cols:
             ctk.CTkLabel(hdr, text=text, width=w,
                          font=ctk.CTkFont(size=11, weight="bold"),
                          anchor="w").pack(side="left", padx=2)
@@ -349,129 +418,178 @@ class App(ctk.CTk):
                 row_specs = [("Left", False), ("Right", False)]
 
             for side_label, is_bilateral in row_specs:
-                row_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-                row_frame.pack(fill="x", pady=3)
+                # In Individual mode: N file rows + shared offset row
+                # In Continuous mode: 1 file row + offset row (existing logic)
+                reps_range = range(num_reps) if is_individual else range(1)
 
-                main_row = ctk.CTkFrame(row_frame, fg_color="transparent")
-                main_row.pack(fill="x")
+                for rep_idx in reps_range:
+                    row_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+                    row_frame.pack(fill="x", pady=3)
 
-                ctk.CTkLabel(main_row, text=mv_name, width=200,
-                             anchor="w", font=ctk.CTkFont(size=11),
-                             ).pack(side="left", padx=2)
-                ctk.CTkLabel(main_row, text=side_label, width=60,
-                             anchor="center", font=ctk.CTkFont(size=11),
-                             ).pack(side="left", padx=2)
+                    main_row = ctk.CTkFrame(row_frame, fg_color="transparent")
+                    main_row.pack(fill="x")
 
-                file_lbl = ctk.CTkLabel(
-                    main_row, text=t("s2_no_file"), width=280,
-                    anchor="w", font=ctk.CTkFont(size=10), text_color="gray",
-                )
-                file_lbl.pack(side="left", padx=2)
+                    mv_display = mv_name if rep_idx == 0 else ""
+                    ctk.CTkLabel(main_row, text=mv_display, width=160,
+                                 anchor="w", font=ctk.CTkFont(size=11),
+                                 ).pack(side="left", padx=2)
 
-                offset_var = ctk.BooleanVar(value=False)
-                row_data: dict = {
-                    "mv_name":          mv_name,
-                    "side":             side_label,
-                    "bilateral":        is_bilateral,
-                    "loaded":           False,
-                    "filename":         "",
-                    "angle_data":       None,
-                    "angle_data_left":  None,
-                    "angle_data_right": None,
-                    "frame_rate":       None,
-                    "events":           None,
-                    "file_lbl":         file_lbl,
-                    "status_lbl":       None,
-                    "offset_var":       offset_var,
-                }
-                self._import_rows.append(row_data)
+                    side_display = side_label if rep_idx == 0 else ""
+                    ctk.CTkLabel(main_row, text=side_display, width=60,
+                                 anchor="center", font=ctk.CTkFont(size=11),
+                                 ).pack(side="left", padx=2)
 
-                ctk.CTkButton(
-                    main_row, text=t("s2_browse"), width=80,
-                    command=lambda rd=row_data: self._browse_c3d(rd),
-                ).pack(side="left", padx=4)
+                    if is_individual:
+                        ctk.CTkLabel(
+                            main_row,
+                            text=t("s2_rep_label").format(n=rep_idx + 1),
+                            width=46,
+                            anchor="center", font=ctk.CTkFont(size=11),
+                        ).pack(side="left", padx=2)
 
-                status_lbl = ctk.CTkLabel(
-                    main_row, text="✗", width=28,
-                    font=ctk.CTkFont(size=14), text_color="#E05252",
-                )
-                status_lbl.pack(side="left", padx=2)
-                row_data["status_lbl"] = status_lbl
-
-                # ── Offset correction row ──────────────────────────────────
-                offset_row = ctk.CTkFrame(row_frame, fg_color="transparent")
-                offset_row.pack(fill="x", padx=4, pady=(0, 2))
-
-                ctk.CTkLabel(offset_row, text="", width=268).pack(side="left")
-
-                if is_bilateral:
-                    off_left_var  = ctk.StringVar(value="0.0")
-                    off_right_var = ctk.StringVar(value="0.0")
-                    row_data["offset_left_var"]  = off_left_var
-                    row_data["offset_right_var"] = off_right_var
-
-                    off_left_entry  = ctk.CTkEntry(
-                        offset_row, textvariable=off_left_var,
-                        width=60, state="disabled")
-                    off_right_entry = ctk.CTkEntry(
-                        offset_row, textvariable=off_right_var,
-                        width=60, state="disabled")
-
-                    def _make_bilateral_toggle(cb_v, el, er):
-                        def _toggle():
-                            s = "normal" if cb_v.get() else "disabled"
-                            el.configure(state=s)
-                            er.configure(state=s)
-                        return _toggle
-
-                    off_cb = ctk.CTkCheckBox(
-                        offset_row, text=t("s2_offset_cb"), width=180,
-                        variable=offset_var, state="disabled",
-                        command=_make_bilateral_toggle(
-                            offset_var, off_left_entry, off_right_entry),
+                    file_lbl = ctk.CTkLabel(
+                        main_row, text=t("s2_no_file"), width=260,
+                        anchor="w", font=ctk.CTkFont(size=10),
+                        text_color="gray",
                     )
-                    off_cb.pack(side="left", padx=(0, 4))
-                    ctk.CTkLabel(offset_row, text="L:",
-                                 font=ctk.CTkFont(size=10)).pack(side="left")
-                    off_left_entry.pack(side="left", padx=2)
-                    ctk.CTkLabel(offset_row, text="R:",
-                                 font=ctk.CTkFont(size=10)).pack(side="left",
-                                                                  padx=(6, 0))
-                    off_right_entry.pack(side="left", padx=2)
-                    row_data["offset_cb"]          = off_cb
-                    row_data["offset_left_entry"]  = off_left_entry
-                    row_data["offset_right_entry"] = off_right_entry
-                else:
-                    off_entry_var = ctk.StringVar(value="0.0")
-                    row_data["offset_entry_var"] = off_entry_var
-                    off_entry = ctk.CTkEntry(
-                        offset_row, textvariable=off_entry_var,
-                        width=70, state="disabled")
+                    file_lbl.pack(side="left", padx=2)
 
-                    def _make_toggle(cb_v, entry):
-                        def _toggle():
-                            entry.configure(
-                                state="normal" if cb_v.get() else "disabled")
-                        return _toggle
+                    offset_var = ctk.BooleanVar(value=False)
+                    row_data: dict = {
+                        "mv_name":          mv_name,
+                        "side":             side_label,
+                        "bilateral":        is_bilateral,
+                        "rep_idx":          rep_idx,
+                        "loaded":           False,
+                        "filename":         "",
+                        "angle_data":       None,
+                        "angle_data_left":  None,
+                        "angle_data_right": None,
+                        "frame_rate":       None,
+                        "events":           None,
+                        "file_lbl":         file_lbl,
+                        "status_lbl":       None,
+                        "offset_var":       offset_var,
+                        "is_individual":    is_individual,
+                    }
+                    self._import_rows.append(row_data)
 
-                    off_cb = ctk.CTkCheckBox(
-                        offset_row, text=t("s2_offset_cb"), width=180,
-                        variable=offset_var, state="disabled",
-                        command=_make_toggle(offset_var, off_entry),
+                    ctk.CTkButton(
+                        main_row, text=t("s2_browse"), width=80,
+                        command=lambda rd=row_data: self._browse_c3d(rd),
+                    ).pack(side="left", padx=4)
+
+                    status_lbl = ctk.CTkLabel(
+                        main_row, text="✗", width=28,
+                        font=ctk.CTkFont(size=14), text_color="#E05252",
                     )
-                    off_cb.pack(side="left", padx=(0, 4))
-                    off_entry.pack(side="left", padx=2)
-                    row_data["offset_cb"]    = off_cb
-                    row_data["offset_entry"] = off_entry
+                    status_lbl.pack(side="left", padx=2)
+                    row_data["status_lbl"] = status_lbl
 
-                ctk.CTkLabel(
-                    offset_row, text=t("s2_offset_hint"),
-                    font=ctk.CTkFont(size=9), text_color="gray",
-                ).pack(side="left", padx=(6, 0))
+                    # ── Offset correction row (first rep only in Individual) ─
+                    show_offset = (not is_individual) or (rep_idx == 0)
+                    if show_offset:
+                        offset_row = ctk.CTkFrame(row_frame,
+                                                  fg_color="transparent")
+                        offset_row.pack(fill="x", padx=4, pady=(0, 2))
 
-                # Restore state if this row had a loaded file before re-render
-                self._restore_row_state(row_data, old_state.get(
-                    (mv_name, side_label)))
+                        spacer_w = 268 if not is_individual else 272
+                        ctk.CTkLabel(offset_row, text="",
+                                     width=spacer_w).pack(side="left")
+
+                        if is_bilateral:
+                            off_left_var  = ctk.StringVar(value="0.0")
+                            off_right_var = ctk.StringVar(value="0.0")
+                            row_data["offset_left_var"]  = off_left_var
+                            row_data["offset_right_var"] = off_right_var
+
+                            off_left_entry  = ctk.CTkEntry(
+                                offset_row, textvariable=off_left_var,
+                                width=60, state="disabled")
+                            off_right_entry = ctk.CTkEntry(
+                                offset_row, textvariable=off_right_var,
+                                width=60, state="disabled")
+
+                            def _make_bilateral_toggle(cb_v, el, er):
+                                def _toggle():
+                                    s = "normal" if cb_v.get() else "disabled"
+                                    el.configure(state=s)
+                                    er.configure(state=s)
+                                return _toggle
+
+                            off_cb = ctk.CTkCheckBox(
+                                offset_row, text=t("s2_offset_cb"), width=180,
+                                variable=offset_var, state="disabled",
+                                command=_make_bilateral_toggle(
+                                    offset_var, off_left_entry,
+                                    off_right_entry),
+                            )
+                            off_cb.pack(side="left", padx=(0, 4))
+                            ctk.CTkLabel(offset_row, text="L:",
+                                         font=ctk.CTkFont(size=10)).pack(
+                                             side="left")
+                            off_left_entry.pack(side="left", padx=2)
+                            ctk.CTkLabel(offset_row, text="R:",
+                                         font=ctk.CTkFont(size=10)).pack(
+                                             side="left", padx=(6, 0))
+                            off_right_entry.pack(side="left", padx=2)
+                            row_data["offset_cb"]          = off_cb
+                            row_data["offset_left_entry"]  = off_left_entry
+                            row_data["offset_right_entry"] = off_right_entry
+                        else:
+                            off_entry_var = ctk.StringVar(value="0.0")
+                            row_data["offset_entry_var"] = off_entry_var
+                            off_entry = ctk.CTkEntry(
+                                offset_row, textvariable=off_entry_var,
+                                width=70, state="disabled")
+
+                            def _make_toggle(cb_v, entry):
+                                def _toggle():
+                                    entry.configure(
+                                        state="normal" if cb_v.get()
+                                        else "disabled")
+                                return _toggle
+
+                            off_cb = ctk.CTkCheckBox(
+                                offset_row, text=t("s2_offset_cb"), width=180,
+                                variable=offset_var, state="disabled",
+                                command=_make_toggle(offset_var, off_entry),
+                            )
+                            off_cb.pack(side="left", padx=(0, 4))
+                            off_entry.pack(side="left", padx=2)
+                            row_data["offset_cb"]    = off_cb
+                            row_data["offset_entry"] = off_entry
+
+                        ctk.CTkLabel(
+                            offset_row, text=t("s2_offset_hint"),
+                            font=ctk.CTkFont(size=9), text_color="gray",
+                        ).pack(side="left", padx=(6, 0))
+
+                    # Restore state if available
+                    self._restore_row_state(
+                        row_data,
+                        old_state.get((mv_name, side_label, rep_idx)))
+
+                # In Individual mode, share the offset_var from rep 0 with all
+                # reps in this (mv_name, side_label) group so they use the same
+                # offset when processing.
+                if is_individual and num_reps > 1:
+                    group = [r for r in self._import_rows
+                             if r["mv_name"] == mv_name
+                             and r["side"] == side_label]
+                    if group:
+                        shared_offset = group[0]["offset_var"]
+                        for r in group[1:]:
+                            r["offset_var"] = shared_offset
+                            if "offset_entry_var" in group[0]:
+                                r["offset_entry_var"] = (
+                                    group[0]["offset_entry_var"])
+                            if "offset_left_var" in group[0]:
+                                r["offset_left_var"] = (
+                                    group[0]["offset_left_var"])
+                            if "offset_right_var" in group[0]:
+                                r["offset_right_var"] = (
+                                    group[0]["offset_right_var"])
 
         # Navigation buttons
         nav = ctk.CTkFrame(f, fg_color="transparent")
@@ -482,12 +600,14 @@ class App(ctk.CTk):
             command=self._show_screen_1,
         ).pack(side="left")
 
+        process_cmd = (self._start_individual_processing if is_individual
+                       else self._start_segmentation)
         self._process_btn = ctk.CTkButton(
             nav, text=t("s2_process"),
             height=40, width=160,
             font=ctk.CTkFont(size=13, weight="bold"),
             state="disabled",
-            command=self._start_segmentation,
+            command=process_cmd,
         )
         self._process_btn.pack(side="right")
         self._update_process_btn()
@@ -681,6 +801,99 @@ class App(ctk.CTk):
                 else:
                     logger.info("Segmentation cancelled for '%s' — %s.",
                                 mv_name, side)
+
+        if not self._processed:
+            messagebox.showinfo(
+                t("s3_no_results_title"),
+                t("s3_no_results_msg"),
+            )
+            return
+
+        self._show_screen_4()
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  Individual mode processing
+    # ══════════════════════════════════════════════════════════════════════
+
+    def _start_individual_processing(self) -> None:
+        from individual_review import IndividualReviewWindow
+        from data_processing import apply_offset
+
+        # Group rows by (mv_name, side)
+        groups: dict[tuple[str, str], list[dict]] = {}
+        for r in self._import_rows:
+            key = (r["mv_name"], r["side"])
+            groups.setdefault(key, []).append(r)
+
+        for (mv_name, side), reps in groups.items():
+            # Sort by rep_idx to keep order stable
+            reps = sorted(reps, key=lambda r: r["rep_idx"])
+
+            offset_on = reps[0]["offset_var"].get()
+
+            if reps[0]["bilateral"]:
+                # Bilateral Individual: process Left and Right separately
+                for actual_side, data_key, off_key in [
+                    ("Left",  "angle_data_left",  "offset_left_var"),
+                    ("Right", "angle_data_right", "offset_right_var"),
+                ]:
+                    try:
+                        off = (float(reps[0][off_key].get())
+                               if offset_on else 0.0)
+                    except (ValueError, KeyError):
+                        off = 0.0
+
+                    curves = [r[data_key] for r in reps if r[data_key] is not None]
+                    if not curves:
+                        continue
+
+                    title = f"{mv_name} — {actual_side}"
+                    win = IndividualReviewWindow(
+                        self, title, curves,
+                        offset_val=off if offset_on else None,
+                    )
+                    self.wait_window(win)
+
+                    if win.result is not None:
+                        self._processed[(mv_name, actual_side)] = {
+                            "movement":   mv_name,
+                            "side":       actual_side,
+                            "angle_data": win.result["angle_data"],
+                            "frame_rate": reps[0]["frame_rate"],
+                            "offset":     win.result["offset"],
+                            "extended":   win.result["extended"],
+                            "segments":   [],
+                        }
+            else:
+                try:
+                    off = (float(reps[0]["offset_entry_var"].get())
+                           if offset_on else 0.0)
+                except (ValueError, KeyError):
+                    off = 0.0
+
+                curves = [r["angle_data"] for r in reps
+                          if r["angle_data"] is not None]
+                if not curves:
+                    continue
+
+                title = (f"{mv_name} — {side}"
+                         if side != _NO_SIDE else mv_name)
+                win = IndividualReviewWindow(
+                    self, title, curves,
+                    offset_val=off if offset_on else None,
+                )
+                self.wait_window(win)
+
+                if win.result is not None:
+                    self._processed[(mv_name, side)] = {
+                        "movement":   mv_name,
+                        "side":       side,
+                        "angle_data": win.result["angle_data"],
+                        "frame_rate": reps[0]["frame_rate"],
+                        "offset":     win.result["offset"],
+                        "extended":   win.result["extended"],
+                        "segments":   [],
+                    }
 
         if not self._processed:
             messagebox.showinfo(
@@ -950,4 +1163,6 @@ class App(ctk.CTk):
         self._processed.clear()
         self._process_btn = None
         self._laterality_var.set("bilateral")
+        self._recording_type_var.set("continuous")
+        self._num_reps_var.set(6)
         self._show_screen_1()

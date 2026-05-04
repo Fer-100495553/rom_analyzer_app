@@ -54,6 +54,25 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Please select at least one movement before continuing.",
         "es": "Por favor, seleccione al menos un movimiento antes de continuar.",
     },
+    # ── Screen 1 — Recording Type ─────────────────────────────────────────
+    "s1_card_recording_type": {
+        "en": "RECORDING TYPE",
+        "es": "TIPO DE GRABACIÓN",
+    },
+    "s1_rec_continuous": {"en": "Continuous", "es": "Continuo"},
+    "s1_rec_continuous_hint": {
+        "en": "one C3D per movement, multiple reps → segment manually",
+        "es": "un C3D por movimiento, varias reps → segmentar manualmente",
+    },
+    "s1_rec_individual": {"en": "Individual", "es": "Individual"},
+    "s1_rec_individual_hint": {
+        "en": "one C3D per repetition → no segmentation needed",
+        "es": "un C3D por repetición → sin segmentación",
+    },
+    "s1_num_reps_label": {
+        "en": "Number of repetitions:",
+        "es": "Número de repeticiones:",
+    },
     # ── Screen 2 ──────────────────────────────────────────────────────────
     "s2_card_import": {
         "en": "IMPORT C3D FILES  (one file per row)",
@@ -103,6 +122,11 @@ _STRINGS: dict[str, dict[str, str]] = {
              "Available angle outputs:\n  {available}",
         "es": "La etiqueta esperada  '{label}'  no se encontró en este archivo C3D.\n\n"
              "Salidas de ángulo disponibles:\n  {available}",
+    },
+    "s2_rep_label": {"en": "Rep {n}", "es": "Rep {n}"},
+    "s2_card_import_individual": {
+        "en": "IMPORT C3D FILES  (one file per repetition)",
+        "es": "IMPORTAR ARCHIVOS C3D  (un archivo por repetición)",
     },
     # ── Screen 3 transition ───────────────────────────────────────────────
     "s3_no_results_title": {"en": "No results", "es": "Sin resultados"},
@@ -167,6 +191,24 @@ _STRINGS: dict[str, dict[str, str]] = {
     "s4_report_coming_msg": {
         "en": "Report generation will be available in a future version.",
         "es": "La generación de informes estará disponible en una versión futura.",
+    },
+    # ── Individual Review window ──────────────────────────────────────────
+    "ir_title": {
+        "en": "Review Repetitions — {movement}",
+        "es": "Revisar Repeticiones — {movement}",
+    },
+    "ir_accept": {"en": "Accept & Continue", "es": "Aceptar y Continuar"},
+    "ir_exclude": {"en": "Exclude Repetition", "es": "Excluir Repetición"},
+    "ir_cancel": {"en": "Cancel", "es": "Cancelar"},
+    "ir_hdr_rep":    {"en": "Rep",    "es": "Rep"},
+    "ir_hdr_rom":    {"en": "ROM (°)", "es": "ROM (°)"},
+    "ir_hdr_peak":   {"en": "Peak (°)", "es": "Máx (°)"},
+    "ir_hdr_valley": {"en": "Valley (°)", "es": "Mín (°)"},
+    "ir_row_mean":   {"en": "Mean ± SD", "es": "Media ± DT"},
+    "ir_excluded_label": {"en": "(excluded)", "es": "(excluida)"},
+    "ir_exclude_mode_hint": {
+        "en": "Click a row in the table or a curve label to toggle exclusion.",
+        "es": "Haz clic en una fila de la tabla o en la etiqueta de curva para excluir.",
     },
     # ── Segmentation window ───────────────────────────────────────────────
     "seg_window_title": {"en": "Segmentation", "es": "Segmentación"},

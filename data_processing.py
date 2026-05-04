@@ -397,6 +397,54 @@ def detect_events(c3d_data: dict) -> list[dict]:
     return c3d_data.get("events", [])
 
 
+def compute_individual_stats(angle_curves: list[np.ndarray]) -> dict:
+    """
+    Compute ROM, peak, and valley statistics for Individual recording mode.
+
+    Each element in *angle_curves* is the full angle array for one repetition
+    (a single C3D file).  ROM = max − min of the whole curve.
+
+    Args:
+        angle_curves: List of 1-D numpy arrays, one per repetition.
+
+    Returns:
+        Same structure as :func:`compute_extended_stats_array`:
+        ``{"rom": {...}, "peak": {...}, "valley": {...}}``.
+        Also adds ``"curves"`` key with the original arrays for plotting.
+    """
+    roms: list[float] = []
+    peaks: list[float] = []
+    valleys: list[float] = []
+
+    for curve in angle_curves:
+        valid = curve[~np.isnan(curve)]
+        if valid.size == 0:
+            roms.append(float("nan"))
+            peaks.append(float("nan"))
+            valleys.append(float("nan"))
+        else:
+            peaks.append(float(np.nanmax(curve)))
+            valleys.append(float(np.nanmin(curve)))
+            roms.append(peaks[-1] - valleys[-1])
+
+    def _agg(values: list[float]) -> dict:
+        valid = np.array([v for v in values if not np.isnan(v)])
+        return {
+            "values": values,
+            "mean": float(np.mean(valid))        if valid.size > 0 else float("nan"),
+            "sd":   float(np.std(valid, ddof=1)) if valid.size > 1 else 0.0,
+            "min":  float(np.min(valid))          if valid.size > 0 else float("nan"),
+            "max":  float(np.max(valid))          if valid.size > 0 else float("nan"),
+        }
+
+    return {
+        "rom":    _agg(roms),
+        "peak":   _agg(peaks),
+        "valley": _agg(valleys),
+        "curves": angle_curves,
+    }
+
+
 def get_side_prefix(side: str) -> str:
     """
     Return the full-word side prefix used in SULM C3D label names.
