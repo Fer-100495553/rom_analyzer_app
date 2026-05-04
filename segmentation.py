@@ -80,15 +80,28 @@ def auto_segment(
             (int(anchors[i]), int(anchors[i + 1]))
             for i in range(len(anchors) - 1)
         ]
-    else:  # halfcycle — each peak→valley or valley→peak is one repetition
+    else:  # halfcycle
         combined = sorted(
             [(int(f), "peak") for f in peaks] + [(int(f), "valley") for f in valleys],
             key=lambda x: x[0],
         )
-        segments = [
-            (combined[i][0], combined[i + 1][0])
-            for i in range(len(combined) - 1)
-        ]
+        if cycle_from == "halfcycle_peak_to_valley":
+            segments = [
+                (combined[i][0], combined[i + 1][0])
+                for i in range(len(combined) - 1)
+                if combined[i][1] == "peak" and combined[i + 1][1] == "valley"
+            ]
+        elif cycle_from == "halfcycle_valley_to_peak":
+            segments = [
+                (combined[i][0], combined[i + 1][0])
+                for i in range(len(combined) - 1)
+                if combined[i][1] == "valley" and combined[i + 1][1] == "peak"
+            ]
+        else:  # backward compat — both directions
+            segments = [
+                (combined[i][0], combined[i + 1][0])
+                for i in range(len(combined) - 1)
+            ]
 
     return segments, peaks, valleys
 
@@ -215,6 +228,9 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         # Artists added by _draw_peak_valley_markers (cleared on each redraw)
         self._pv_artists: list = []
 
+        # Indices of excluded (user-toggled) segments in auto mode
+        self._excluded_indices: set[int] = set()
+
         self._build_ui()
         self._switch_mode()
 
@@ -254,7 +270,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
             ).pack(side="left", padx=6)
 
         # ─ Mode-specific panels ───────────────────────────────────────────
-        self._panel_container = ctk.CTkFrame(self, height=100)
+        self._panel_container = ctk.CTkFrame(self, height=130)
         self._panel_container.pack(fill="x", padx=10, pady=4)
         self._panel_container.pack_propagate(False)
 
@@ -326,13 +342,30 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         slider_d.pack(side="left", padx=4)
         self._dist_lbl.pack(side="left", padx=2)
 
-        # Detect button
-        row3 = ctk.CTkFrame(f, fg_color="transparent")
-        row3.pack(fill="x", padx=6, pady=(4, 4))
+        # Half-cycle direction row
+        row_dir = ctk.CTkFrame(f, fg_color="transparent")
+        row_dir.pack(fill="x", padx=6, pady=(2, 0))
+        ctk.CTkLabel(row_dir, text=t("seg_halfcycle_direction"), width=90).pack(side="left")
+        self._halfcycle_dir_var = ctk.StringVar(value="peak_to_valley")
+        for _lbl, _val in [
+            (t("seg_half_peak_to_valley"), "peak_to_valley"),
+            (t("seg_half_valley_to_peak"), "valley_to_peak"),
+        ]:
+            ctk.CTkRadioButton(
+                row_dir, text=_lbl, variable=self._halfcycle_dir_var, value=_val,
+            ).pack(side="left", padx=6)
+
+        # Detect + Reset Selection row
+        row_btn = ctk.CTkFrame(f, fg_color="transparent")
+        row_btn.pack(fill="x", padx=6, pady=(4, 4))
         ctk.CTkButton(
-            row3, text=t("seg_detect"), width=80,
+            row_btn, text=t("seg_detect"), width=80,
             command=self._run_auto_detection,
         ).pack(side="right", padx=8)
+        ctk.CTkButton(
+            row_btn, text=t("seg_reset_selection"), width=130,
+            command=self._reset_selection,
+        ).pack(side="right", padx=4)
 
         return f
 
@@ -428,11 +461,15 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         self._draw_base_curve()
 
         for i, (s, e) in enumerate(segments):
-            color = _REP_COLORS[i % len(_REP_COLORS)]
+            is_excluded = i in self._excluded_indices
+            color = "#AAAAAA" if is_excluded else _REP_COLORS[i % len(_REP_COLORS)]
+            alpha = 0.15 if is_excluded else 0.22
             ts, te = s / self._frame_rate, e / self._frame_rate
-            self.ax.axvspan(ts, te, alpha=0.22, color=color, zorder=1)
+            self.ax.axvspan(ts, te, alpha=alpha, color=color, zorder=1)
             label = f"R{i + 1}"
-            if roms and i < len(roms) and not np.isnan(roms[i]):
+            if is_excluded:
+                label += f"\n{t('seg_rep_excluded')}"
+            elif roms and i < len(roms) and not np.isnan(roms[i]):
                 label += f"\n{roms[i]:.1f}°"
             self.ax.text(
                 (ts + te) / 2, 0.97, label,
@@ -484,7 +521,9 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         # Artists are invalid after ax.clear(); just reset the list
         self._pv_artists = []
 
-        for s, e in self._segments:
+        for idx, (s, e) in enumerate(self._segments):
+            if idx in self._excluded_indices:
+                continue
             s_c = max(0, s)
             e_c = min(len(self._angle_data) - 1, e)
             chunk = self._angle_data[s_c : e_c + 1]
@@ -521,37 +560,56 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
     # ── Canvas click handler ───────────────────────────────────────────────
 
     def _on_canvas_click(self, event) -> None:
-        if self._mode_var.get() != "manual":
-            return
         if event.inaxes != self.ax:
             return
         if self._nav.mode:
             return
 
-        t = event.xdata  # time in seconds
-        x_frame = t * self._frame_rate  # fractional frame index
+        mode = self._mode_var.get()
 
-        if event.button == 1:  # left click — add
-            self._markers.append(x_frame)
-        elif event.button == 3:  # right click — remove nearest
-            if not self._markers:
-                return
-            times = [m / self._frame_rate for m in self._markers]
-            nearest = int(np.argmin(np.abs(np.array(times) - t)))
-            self._markers.pop(nearest)
+        if mode == "manual":
+            t_x = event.xdata
+            x_frame = t_x * self._frame_rate
 
-        self._redraw_manual_markers()
-        self._update_manual_status()
-        self._compute_and_show_stats_manual()
+            if event.button == 1:  # left click — add
+                self._markers.append(x_frame)
+            elif event.button == 3:  # right click — remove nearest
+                if not self._markers:
+                    return
+                times = [m / self._frame_rate for m in self._markers]
+                nearest = int(np.argmin(np.abs(np.array(times) - t_x)))
+                self._markers.pop(nearest)
+
+            self._redraw_manual_markers()
+            self._update_manual_status()
+            self._compute_and_show_stats_manual()
+
+        elif mode == "auto" and self._segments:
+            t_click = event.xdata
+            for i, (s, e) in enumerate(self._segments):
+                ts, te = s / self._frame_rate, e / self._frame_rate
+                if ts <= t_click <= te:
+                    if i in self._excluded_indices:
+                        self._excluded_indices.discard(i)
+                    else:
+                        self._excluded_indices.add(i)
+                    roms = compute_rep_roms(self._angle_data, self._segments)
+                    self._redraw_with_segments(
+                        self._segments, self._peaks, self._valleys, roms
+                    )
+                    self._update_stats(self._segments, roms)
+                    break
 
     # ── Auto mode ──────────────────────────────────────────────────────────
 
     def _run_auto_detection(self) -> None:
         prom = float(self._prom_var.get())
         dist = int(self._dist_var.get())
+        direction = self._halfcycle_dir_var.get()
+        cycle_from = f"halfcycle_{direction}"
         try:
             segs, peaks, valleys = auto_segment(
-                self._angle_data, prom, dist)
+                self._angle_data, prom, dist, cycle_from=cycle_from)
         except Exception as exc:
             messagebox.showerror(t("seg_detect_error"), str(exc), parent=self)
             return
@@ -560,6 +618,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         self._peaks = peaks
         self._valleys = valleys
         self._segments = segs
+        self._excluded_indices = set()
 
         roms = compute_rep_roms(self._angle_data, segs)
         self._redraw_with_segments(segs, peaks, valleys, roms)
@@ -654,16 +713,24 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
             self._stats_lbl.configure(text=f"  {t('seg_no_segments')}")
             return
 
-        valid = [r for r in roms if not np.isnan(r)]
+        active_roms = [r for i, r in enumerate(roms) if i not in self._excluded_indices]
+        valid = [r for r in active_roms if not np.isnan(r)]
         mean = np.mean(valid) if valid else float("nan")
         sd = np.std(valid, ddof=1) if len(valid) > 1 else 0.0
+        n_active = len(active_roms)
 
-        rom_str = "  ".join(
-            f"R{i+1}: {r:.1f}°" if not np.isnan(r) else f"R{i+1}: —"
-            for i, r in enumerate(roms)
-        )
+        parts = []
+        for i, r in enumerate(roms):
+            if np.isnan(r):
+                parts.append(f"R{i+1}: —")
+            elif i in self._excluded_indices:
+                parts.append(f"R{i+1}: {r:.1f}° {t('seg_rep_excluded')}")
+            else:
+                parts.append(f"R{i+1}: {r:.1f}°")
+        rom_str = "  ".join(parts)
+
         self._stats_lbl.configure(
-            text=f"  {t('seg_n_segments').format(n=len(segments))}  |  "
+            text=f"  N={n_active}/{len(segments)}  |  "
                  f"Mean: {mean:.1f}° ± {sd:.1f}°  |  {rom_str}",
         )
 
@@ -684,13 +751,36 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
             )
             return
 
-        roms = compute_rep_roms(self._angle_data, self._segments)
-        self.result = compute_stats_from_roms(roms, self._segments)
+        if mode == "auto":
+            active_segs = [
+                seg for i, seg in enumerate(self._segments)
+                if i not in self._excluded_indices
+            ]
+        else:
+            active_segs = self._segments
+
+        if not active_segs:
+            messagebox.showwarning(
+                t("seg_no_active_title"),
+                t("seg_no_active_msg"),
+                parent=self,
+            )
+            return
+
+        roms = compute_rep_roms(self._angle_data, active_segs)
+        self.result = compute_stats_from_roms(roms, active_segs)
 
         if self._on_accept:
             self._on_accept(self.result)
 
         self.destroy()
+
+    def _reset_selection(self) -> None:
+        self._excluded_indices.clear()
+        if self._segments:
+            roms = compute_rep_roms(self._angle_data, self._segments)
+            self._redraw_with_segments(self._segments, self._peaks, self._valleys, roms)
+            self._update_stats(self._segments, roms)
 
     def _reset(self) -> None:
         self._segments = []
@@ -700,6 +790,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         self._markers.clear()
         self._marker_artists.clear()
         self._pv_artists = []
+        self._excluded_indices = set()
         self._draw_base_curve()
         self._stats_lbl.configure(text=f"  {t('seg_no_segments')}")
         if hasattr(self, "_manual_status"):

@@ -264,6 +264,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "  0 markers placed.",
         "es": "  0 marcadores colocados.",
     },
+    "seg_halfcycle_direction": {"en": "Direction:", "es": "Dirección:"},
+    "seg_half_peak_to_valley": {"en": "Peak → Valley", "es": "Pico → Valle"},
+    "seg_half_valley_to_peak": {"en": "Valley → Peak", "es": "Valle → Pico"},
+    "seg_rep_excluded": {"en": "(excluded)", "es": "(excluida)"},
+    "seg_reset_selection": {"en": "Reset Selection", "es": "Resetear Selección"},
+    "seg_no_active_title": {"en": "No active segments", "es": "Sin segmentos activos"},
+    "seg_no_active_msg": {
+        "en": "All repetitions are excluded. Please include at least one.",
+        "es": "Todas las repeticiones están excluidas. Incluya al menos una.",
+    },
 }
 
 
