@@ -71,6 +71,7 @@ class App(ctk.CTk):
         self._import_rows: list[dict] = []
         self._process_btn: ctk.CTkButton | None = None
         self._processed: dict[tuple[str, str], dict] = {}
+        self._layout_vertical: bool = True
 
         # Navigation state (used to re-render on language change)
         self._current_screen: int = 1
@@ -138,7 +139,8 @@ class App(ctk.CTk):
     def _open_settings(self) -> None:
         dlg = ctk.CTkToplevel(self)
         dlg.title(t("settings_title"))
-        dlg.geometry("340x260")
+        dlg.geometry("460x290")
+        dlg.minsize(460, 290)
         dlg.resizable(False, False)
         dlg.grab_set()
         dlg.lift()
@@ -148,10 +150,10 @@ class App(ctk.CTk):
         ctk.CTkLabel(
             dlg, text=t("settings_language_label"),
             font=ctk.CTkFont(size=13, weight="bold"),
-        ).pack(anchor="w", padx=24, pady=(22, 6))
+        ).pack(anchor="w", padx=28, pady=(24, 8))
 
         lang_frame = ctk.CTkFrame(dlg, fg_color="transparent")
-        lang_frame.pack(anchor="w", padx=24)
+        lang_frame.pack(anchor="w", padx=28, pady=(0, 4))
 
         lang_var = ctk.StringVar(value=settings_manager.get("language"))
         for label, value in [("English", "en"), ("Español", "es")]:
@@ -159,16 +161,16 @@ class App(ctk.CTk):
                 lang_frame, text=label,
                 variable=lang_var, value=value,
                 command=lambda v=value: self._on_language_change(v, dlg),
-            ).pack(side="left", padx=(0, 20))
+            ).pack(side="left", padx=(0, 28))
 
         # ── Theme ─────────────────────────────────────────────────────────
         ctk.CTkLabel(
             dlg, text=t("settings_theme_label"),
             font=ctk.CTkFont(size=13, weight="bold"),
-        ).pack(anchor="w", padx=24, pady=(20, 6))
+        ).pack(anchor="w", padx=28, pady=(20, 8))
 
         theme_frame = ctk.CTkFrame(dlg, fg_color="transparent")
-        theme_frame.pack(anchor="w", padx=24)
+        theme_frame.pack(anchor="w", padx=28, pady=(0, 4))
 
         theme_var = ctk.StringVar(value=settings_manager.get("theme"))
         for label_key, value in [
@@ -180,13 +182,13 @@ class App(ctk.CTk):
                 theme_frame, text=t(label_key),
                 variable=theme_var, value=value,
                 command=lambda v=value: self._on_theme_change(v),
-            ).pack(side="left", padx=(0, 16))
+            ).pack(side="left", padx=(0, 24))
 
         # ── Close ─────────────────────────────────────────────────────────
         ctk.CTkButton(
             dlg, text=t("settings_close"),
             width=120, command=dlg.destroy,
-        ).pack(pady=(26, 16))
+        ).pack(pady=(28, 18))
 
     def _on_language_change(self, lang: str, dlg: ctk.CTkToplevel) -> None:
         settings_manager.set_language(lang)
@@ -197,6 +199,7 @@ class App(ctk.CTk):
     def _on_theme_change(self, theme: str) -> None:
         settings_manager.set_theme(theme)
         ctk.set_appearance_mode(theme)
+        self._rerender_current_screen()
 
     # ══════════════════════════════════════════════════════════════════════
     #  Screen 1 — Study Configuration
@@ -911,7 +914,7 @@ class App(ctk.CTk):
     def _show_screen_4(self) -> None:
         self._current_screen = 4
         self._clear_container()
-        self._layout_vertical = True
+        # _layout_vertical preserved across toggles and re-renders
 
         f = ctk.CTkFrame(self._container, fg_color="transparent")
         f.pack(fill="both", expand=True)
@@ -920,27 +923,28 @@ class App(ctk.CTk):
         top_bar = ctk.CTkFrame(f, fg_color="transparent")
         top_bar.pack(fill="x", pady=(0, 4))
 
-        self._layout_toggle_btn = ctk.CTkButton(
-            top_bar, text=t("s4_layout_horizontal"), width=190,
+        toggle_text = (t("s4_layout_horizontal") if self._layout_vertical
+                       else t("s4_layout_vertical"))
+        ctk.CTkButton(
+            top_bar, text=toggle_text, width=190,
             command=self._toggle_layout,
-        )
-        self._layout_toggle_btn.pack(side="right")
+        ).pack(side="right")
 
-        # ── Content area ──────────────────────────────────────────────────
-        self._layout_content = ctk.CTkFrame(f, fg_color="transparent")
-        self._layout_content.pack(fill="both", expand=True)
+        # ── Scrollable area — one section per movement ─────────────────────
+        scroll = ctk.CTkScrollableFrame(f)
+        scroll.pack(fill="both", expand=True)
 
-        self._layout_card_tbl   = _card(self._layout_content,
-                                        t("s4_card_results"))
-        self._build_summary_table(self._layout_card_tbl)
+        _is_dark = ctk.get_appearance_mode() == "Dark"
+        _bg_alt = "#2A2D2E" if _is_dark else "#EBEBEB"
 
-        self._layout_card_chart = _card(self._layout_content,
-                                        t("s4_card_overview"))
-        self._build_rom_chart(self._layout_card_chart)
+        groups: dict[str, list[tuple[str, dict]]] = {}
+        for (mv_name, side), data in self._processed.items():
+            groups.setdefault(mv_name, []).append((side, data))
 
-        self._apply_layout()
+        for mv_name, sides_data in groups.items():
+            self._build_movement_section(scroll, mv_name, sides_data, _bg_alt)
 
-        # ── Bottom action bar ──────────────────────────────────────────────
+        # ── Fixed bottom action bar ────────────────────────────────────────
         btn_row = ctk.CTkFrame(f, fg_color="transparent")
         btn_row.pack(fill="x", pady=(6, 0))
 
@@ -958,50 +962,124 @@ class App(ctk.CTk):
             command=self._generate_report,
         ).pack(side="right", padx=4)
 
-    def _apply_layout(self) -> None:
-        content    = self._layout_content
-        card_tbl   = self._layout_card_tbl
-        card_chart = self._layout_card_chart
-
-        card_tbl.grid_forget()
-        card_chart.grid_forget()
-
-        if self._layout_vertical:
-            content.grid_rowconfigure(0, weight=1, minsize=0)
-            content.grid_rowconfigure(1, weight=1, minsize=0)
-            content.grid_columnconfigure(0, weight=1, minsize=0)
-            content.grid_columnconfigure(1, weight=0, minsize=0)
-
-            card_tbl.grid(row=0, column=0, columnspan=2,
-                          sticky="nsew", pady=(0, 4))
-            card_chart.grid(row=1, column=0, columnspan=2, sticky="nsew")
-
-            self._layout_toggle_btn.configure(text=t("s4_layout_horizontal"))
-        else:
-            content.grid_rowconfigure(0, weight=1, minsize=0)
-            content.grid_rowconfigure(1, weight=0, minsize=0)
-            content.grid_columnconfigure(0, weight=1, minsize=0)
-            content.grid_columnconfigure(1, weight=1, minsize=0)
-
-            card_tbl.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
-            card_chart.grid(row=0, column=1, sticky="nsew")
-
-            self._layout_toggle_btn.configure(text=t("s4_layout_vertical"))
-
     def _toggle_layout(self) -> None:
         self._layout_vertical = not self._layout_vertical
-        self._apply_layout()
+        self._show_screen_4()
 
-    def _build_summary_table(self, parent: ctk.CTkFrame) -> None:
+    def _build_movement_section(
+        self,
+        parent,
+        mv_name: str,
+        sides_data: list[tuple[str, dict]],
+        bg_alt: str,
+    ) -> None:
+        section = ctk.CTkFrame(parent)
+        section.pack(fill="x", padx=4, pady=(0, 10))
+
+        ctk.CTkLabel(
+            section, text=mv_name,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w", padx=12, pady=(8, 4))
+
+        content = ctk.CTkFrame(section, fg_color="transparent")
+        content.pack(fill="x", padx=8, pady=(0, 8))
+
+        if self._layout_vertical:
+            chart_frame = ctk.CTkFrame(content, fg_color="transparent")
+            chart_frame.pack(fill="x", pady=(0, 4))
+            self._build_movement_chart(chart_frame, sides_data)
+
+            tbl_frame = ctk.CTkFrame(content, fg_color="transparent")
+            tbl_frame.pack(fill="x")
+            self._build_movement_table(tbl_frame, sides_data, bg_alt)
+        else:
+            tbl_frame = ctk.CTkFrame(content, fg_color="transparent")
+            tbl_frame.pack(side="left", fill="both", expand=True, padx=(0, 4))
+            self._build_movement_table(tbl_frame, sides_data, bg_alt)
+
+            chart_frame = ctk.CTkFrame(content, fg_color="transparent")
+            chart_frame.pack(side="left", fill="both", expand=True)
+            self._build_movement_chart(chart_frame, sides_data)
+
+    def _build_movement_chart(
+        self,
+        parent,
+        sides_data: list[tuple[str, dict]],
+    ) -> None:
+        import numpy as _np
+        from matplotlib.figure import Figure
+
+        _SIDE_COLORS = {"Left": "#E8A0BF", "Right": "#4ECDC4"}
+        _DEFAULT_COLOR = "#4A90D9"
+
+        metric_keys   = ["rom", "peak", "valley"]
+        metric_labels = [t("s4_metric_rom"), t("s4_metric_peak"),
+                         t("s4_metric_valley")]
+
+        n_sides = len(sides_data)
+        bar_w   = 0.35 if n_sides > 1 else 0.5
+        x       = _np.arange(len(metric_keys))
+
+        fig = Figure(figsize=(5.5, 3.0), tight_layout=True)
+        ax  = fig.add_subplot(111)
+
+        for i, (side, data) in enumerate(sides_data):
+            extended = data.get("extended", {})
+            means = [extended.get(mk, {}).get("mean", float("nan"))
+                     for mk in metric_keys]
+            sds   = [extended.get(mk, {}).get("sd",   0.0)
+                     for mk in metric_keys]
+
+            color  = _SIDE_COLORS.get(side, _DEFAULT_COLOR)
+            offset = (i - (n_sides - 1) / 2) * bar_w
+
+            bars = ax.bar(
+                x + offset, means, bar_w,
+                yerr=sds, capsize=4,
+                color=color, alpha=0.85,
+                error_kw={"elinewidth": 1.2, "capthick": 1.2},
+                label=side, zorder=3,
+            )
+
+            for bar, mean in zip(bars, means):
+                if not math.isnan(mean):
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + max(abs(bar.get_height()) * 0.02, 0.5),
+                        f"{mean:.1f}",
+                        ha="center", va="bottom", fontsize=7,
+                    )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(metric_labels, fontsize=9)
+        ax.set_ylabel("°", fontsize=10)
+        ax.grid(True, axis="y", alpha=0.3, zorder=0)
+        if n_sides > 1:
+            ax.legend(fontsize=8, loc="upper right")
+
+        try:
+            canvas = FigureCanvasTkAgg(fig, master=parent)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True)
+        except Exception as exc:
+            ctk.CTkLabel(parent, text=t("s4_chart_unavailable").format(exc=exc),
+                         text_color="gray").pack(padx=8, pady=4)
+
+    def _build_movement_table(
+        self,
+        parent,
+        sides_data: list[tuple[str, dict]],
+        bg_alt: str,
+    ) -> None:
         headers = [
-            t("s4_hdr_movement"), t("s4_hdr_side"), t("s4_hdr_metric"),
-            t("s4_hdr_n"),        t("s4_hdr_mean"),  t("s4_hdr_sd"),
-            t("s4_hdr_min"),      t("s4_hdr_max"),
+            t("s4_hdr_side"), t("s4_hdr_metric"),
+            t("s4_hdr_n"), t("s4_hdr_mean"), t("s4_hdr_sd"),
+            t("s4_hdr_min"), t("s4_hdr_max"),
         ]
-        col_w = [180, 55, 65, 36, 70, 60, 60, 60]
+        col_w = [58, 65, 32, 68, 56, 56, 56]
 
-        scroll = ctk.CTkScrollableFrame(parent, height=200)
-        scroll.pack(fill="both", expand=True, padx=12, pady=(0, 4))
+        scroll = ctk.CTkScrollableFrame(parent, height=130)
+        scroll.pack(fill="both", expand=True, padx=4, pady=(0, 4))
 
         for c, (h, w) in enumerate(zip(headers, col_w)):
             ctk.CTkLabel(scroll, text=h, width=w,
@@ -1009,30 +1087,28 @@ class App(ctk.CTk):
                          anchor="w").grid(row=0, column=c, padx=2, pady=2,
                                           sticky="w")
 
-        row_idx = 1
-        offset_notes: list[str] = []
-
         metric_labels = [
             (t("s4_metric_rom"),    "rom"),
             (t("s4_metric_peak"),   "peak"),
             (t("s4_metric_valley"), "valley"),
         ]
 
-        for group_idx, ((mv_name, side), data) in enumerate(
-                self._processed.items()):
+        offset_notes: list[str] = []
+        row_idx = 1
+
+        for group_idx, (side, data) in enumerate(sides_data):
             extended   = data.get("extended", {})
             offset_val = data.get("offset")
 
             if offset_val is not None:
                 offset_notes.append(
-                    f"{mv_name} ({side}): "
+                    f"({side}): "
                     + t("s4_offset_subtracted").format(offset=offset_val)
                 )
 
-            bg = "#2A2D2E" if group_idx % 2 == 0 else "transparent"
+            bg = bg_alt if group_idx % 2 == 0 else "transparent"
 
-            for sub_idx, (metric_label, metric_key) in enumerate(
-                    metric_labels):
+            for sub_idx, (metric_label, metric_key) in enumerate(metric_labels):
                 stats  = extended.get(metric_key, {})
                 values = stats.get("values", [])
                 mean_v = stats.get("mean", float("nan"))
@@ -1041,8 +1117,7 @@ class App(ctk.CTk):
                 max_v  = stats.get("max",  float("nan"))
 
                 row_vals = [
-                    mv_name if sub_idx == 0 else "",
-                    side    if sub_idx == 0 else "",
+                    side if sub_idx == 0 else "",
                     metric_label,
                     str(len(values)),
                     f"{mean_v:.1f}" if not math.isnan(mean_v) else "—",
@@ -1055,8 +1130,7 @@ class App(ctk.CTk):
                     ctk.CTkLabel(scroll, text=val, width=w,
                                  font=ctk.CTkFont(size=11), anchor="w",
                                  fg_color=bg).grid(row=row_idx, column=c,
-                                                   padx=2, pady=1,
-                                                   sticky="w")
+                                                   padx=2, pady=1, sticky="w")
                 row_idx += 1
 
         if offset_notes:
@@ -1064,29 +1138,8 @@ class App(ctk.CTk):
                     + "; ".join(offset_notes) + ".")
             ctk.CTkLabel(parent, text=note,
                          font=ctk.CTkFont(size=9), text_color="gray",
-                         anchor="w", wraplength=780,
-                         ).pack(fill="x", padx=12, pady=(0, 4))
-
-    def _build_rom_chart(self, parent: ctk.CTkFrame) -> None:
-        from plotting import plot_rom_summary
-
-        chart_data: dict[str, dict] = {}
-        for (mv_name, side), data in self._processed.items():
-            key = f"{mv_name}\n({side})" if side != _NO_SIDE else mv_name
-            chart_data[key] = data
-
-        try:
-            fig = plot_rom_summary(chart_data, normative={})
-            canvas = FigureCanvasTkAgg(fig, master=parent)
-            canvas.draw()
-            canvas.get_tk_widget().pack(fill="both", expand=True,
-                                        padx=12, pady=(0, 8))
-        except Exception as exc:
-            ctk.CTkLabel(
-                parent,
-                text=t("s4_chart_unavailable").format(exc=exc),
-                text_color="gray",
-            ).pack(padx=12, pady=4)
+                         anchor="w", wraplength=380,
+                         ).pack(fill="x", padx=4, pady=(0, 2))
 
     # ── Export ─────────────────────────────────────────────────────────────
 
@@ -1165,4 +1218,5 @@ class App(ctk.CTk):
         self._laterality_var.set("bilateral")
         self._recording_type_var.set("continuous")
         self._num_reps_var.set(6)
+        self._layout_vertical = True
         self._show_screen_1()

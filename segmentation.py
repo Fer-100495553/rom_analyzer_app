@@ -53,17 +53,20 @@ def auto_segment(
     angle_data: np.ndarray,
     min_prominence: float,
     min_distance: int,
-    cycle_from: str = "valley",
+    cycle_from: str = "halfcycle",
 ) -> tuple[list[tuple[int, int]], np.ndarray, np.ndarray]:
     """
     Automatically detect repetition boundaries in an angle curve.
+
+    Default mode ``"halfcycle"`` treats each peak→valley or valley→peak
+    transition as one repetition.  Pass ``cycle_from="valley"`` or
+    ``cycle_from="peak"`` for the legacy full-cycle modes.
 
     Args:
         angle_data:      1D angle array.
         min_prominence:  Minimum peak prominence (degrees).
         min_distance:    Minimum inter-peak distance (frames).
-        cycle_from:      ``"valley"`` (valley-to-valley) or ``"peak"``
-                         (peak-to-peak).
+        cycle_from:      ``"halfcycle"`` (default), ``"valley"``, or ``"peak"``.
 
     Returns:
         Tuple ``(segments, peaks, valleys)`` where *segments* is a list of
@@ -71,10 +74,21 @@ def auto_segment(
     """
     peaks, valleys = detect_peaks_valleys(angle_data, min_prominence, min_distance)
 
-    anchors = valleys if cycle_from == "valley" else peaks
-    segments: list[tuple[int, int]] = []
-    for i in range(len(anchors) - 1):
-        segments.append((int(anchors[i]), int(anchors[i + 1])))
+    if cycle_from in ("valley", "peak"):
+        anchors = valleys if cycle_from == "valley" else peaks
+        segments: list[tuple[int, int]] = [
+            (int(anchors[i]), int(anchors[i + 1]))
+            for i in range(len(anchors) - 1)
+        ]
+    else:  # halfcycle — each peak→valley or valley→peak is one repetition
+        combined = sorted(
+            [(int(f), "peak") for f in peaks] + [(int(f), "valley") for f in valleys],
+            key=lambda x: x[0],
+        )
+        segments = [
+            (combined[i][0], combined[i + 1][0])
+            for i in range(len(combined) - 1)
+        ]
 
     return segments, peaks, valleys
 
@@ -312,17 +326,9 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         slider_d.pack(side="left", padx=4)
         self._dist_lbl.pack(side="left", padx=2)
 
-        # Cycle type + detect button
+        # Detect button
         row3 = ctk.CTkFrame(f, fg_color="transparent")
         row3.pack(fill="x", padx=6, pady=(4, 4))
-        ctk.CTkLabel(row3, text=t("seg_cycle_from"), width=80).pack(side="left")
-        self._cycle_var = ctk.StringVar(value="valley")
-        ctk.CTkRadioButton(row3, text=t("seg_valley_valley"),
-                           variable=self._cycle_var,
-                           value="valley").pack(side="left", padx=6)
-        ctk.CTkRadioButton(row3, text=t("seg_peak_peak"),
-                           variable=self._cycle_var,
-                           value="peak").pack(side="left", padx=4)
         ctk.CTkButton(
             row3, text=t("seg_detect"), width=80,
             command=self._run_auto_detection,
@@ -543,11 +549,9 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
     def _run_auto_detection(self) -> None:
         prom = float(self._prom_var.get())
         dist = int(self._dist_var.get())
-        cycle = self._cycle_var.get()
-
         try:
             segs, peaks, valleys = auto_segment(
-                self._angle_data, prom, dist, cycle_from=cycle)
+                self._angle_data, prom, dist)
         except Exception as exc:
             messagebox.showerror(t("seg_detect_error"), str(exc), parent=self)
             return
@@ -659,8 +663,8 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
             for i, r in enumerate(roms)
         )
         self._stats_lbl.configure(
-            text=f"  {len(segments)} rep(s)  |  Mean: {mean:.1f}° ± {sd:.1f}°  "
-                 f"|  {rom_str}",
+            text=f"  {t('seg_n_segments').format(n=len(segments))}  |  "
+                 f"Mean: {mean:.1f}° ± {sd:.1f}°  |  {rom_str}",
         )
 
     # ── Accept / Reset ─────────────────────────────────────────────────────

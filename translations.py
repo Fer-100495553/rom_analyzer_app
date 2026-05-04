@@ -255,6 +255,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "No complete pairs found between '{start}' and '{end}'.",
         "es": "No se encontraron pares completos entre '{start}' y '{end}'.",
     },
+    "seg_n_segments": {
+        "en": "{n} segment(s)",
+        "es": "{n} segmento(s)",
+    },
     "seg_detect_error": {"en": "Detection error", "es": "Error de detección"},
     "seg_initial_markers": {
         "en": "  0 markers placed.",
