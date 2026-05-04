@@ -198,6 +198,9 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         # Current accepted segments
         self._segments: list[tuple[int, int]] = []
 
+        # Artists added by _draw_peak_valley_markers (cleared on each redraw)
+        self._pv_artists: list = []
+
         self._build_ui()
         self._switch_mode()
 
@@ -441,6 +444,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
                          ms=6, zorder=5, label="valleys")
 
         self._canvas.draw_idle()
+        self._draw_peak_valley_markers()
 
     def _redraw_manual_markers(self) -> None:
         self._draw_base_curve()
@@ -467,6 +471,45 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
                 transform=self.ax.get_xaxis_transform(), zorder=4,
             )
             self._marker_artists.append((vl, txt))
+        self._canvas.draw_idle()
+
+    def _draw_peak_valley_markers(self) -> None:
+        """Overlay per-segment Peak (▲ red) and Valley (▼ blue) markers."""
+        # Artists are invalid after ax.clear(); just reset the list
+        self._pv_artists = []
+
+        for s, e in self._segments:
+            s_c = max(0, s)
+            e_c = min(len(self._angle_data) - 1, e)
+            chunk = self._angle_data[s_c : e_c + 1]
+            if not np.any(~np.isnan(chunk)):
+                continue
+
+            pk_local = int(np.nanargmax(chunk))
+            vl_local = int(np.nanargmin(chunk))
+            pk_frame = s_c + pk_local
+            vl_frame = s_c + vl_local
+            pk_val = float(chunk[pk_local])
+            vl_val = float(chunk[vl_local])
+            pk_t = pk_frame / self._frame_rate
+            vl_t = vl_frame / self._frame_rate
+
+            pk_art, = self.ax.plot(pk_t, pk_val, marker="^", color="#E05252",
+                                   markersize=8, zorder=6, linestyle="None")
+            pk_txt = self.ax.annotate(
+                f"{pk_val:.1f}°", xy=(pk_t, pk_val),
+                xytext=(4, 4), textcoords="offset points",
+                fontsize=7, color="#E05252", zorder=6,
+            )
+            vl_art, = self.ax.plot(vl_t, vl_val, marker="v", color="#4C9BE8",
+                                   markersize=8, zorder=6, linestyle="None")
+            vl_txt = self.ax.annotate(
+                f"{vl_val:.1f}°", xy=(vl_t, vl_val),
+                xytext=(4, -10), textcoords="offset points",
+                fontsize=7, color="#4C9BE8", zorder=6,
+            )
+            self._pv_artists.extend([pk_art, pk_txt, vl_art, vl_txt])
+
         self._canvas.draw_idle()
 
     # ── Canvas click handler ───────────────────────────────────────────────
@@ -530,6 +573,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
     def _manual_clear(self) -> None:
         self._markers.clear()
         self._marker_artists.clear()
+        self._pv_artists = []
         self._draw_base_curve()
         self._update_manual_status()
         self._stats_lbl.configure(text=f"  {t('seg_no_segments')}")
@@ -548,6 +592,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         roms = compute_rep_roms(self._angle_data, segs)
         self._segments = segs
         self._update_stats(segs, roms)
+        self._draw_peak_valley_markers()
 
     # ── Events mode ────────────────────────────────────────────────────────
 
@@ -650,6 +695,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         self._valleys = np.array([], dtype=int)
         self._markers.clear()
         self._marker_artists.clear()
+        self._pv_artists = []
         self._draw_base_curve()
         self._stats_lbl.configure(text=f"  {t('seg_no_segments')}")
         if hasattr(self, "_manual_status"):
