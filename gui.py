@@ -987,7 +987,7 @@ class App(ctk.CTk):
         if self._layout_vertical:
             chart_frame = ctk.CTkFrame(content, fg_color="transparent")
             chart_frame.pack(fill="x", pady=(0, 4))
-            self._build_movement_chart(chart_frame, sides_data)
+            self._build_movement_chart(chart_frame, sides_data, mv_name)
 
             tbl_frame = ctk.CTkFrame(content, fg_color="transparent")
             tbl_frame.pack(fill="x")
@@ -999,17 +999,18 @@ class App(ctk.CTk):
 
             chart_frame = ctk.CTkFrame(content, fg_color="transparent")
             chart_frame.pack(side="left", fill="both", expand=True)
-            self._build_movement_chart(chart_frame, sides_data)
+            self._build_movement_chart(chart_frame, sides_data, mv_name)
 
     def _build_movement_chart(
         self,
         parent,
         sides_data: list[tuple[str, dict]],
+        mv_name: str = "",
     ) -> None:
         import numpy as _np
         from matplotlib.figure import Figure
 
-        _SIDE_COLORS = {"Left": "#E8A0BF", "Right": "#4ECDC4"}
+        _SIDE_COLORS = {"Left": "#E74C3C", "Right": "#2ECC71"}
         _DEFAULT_COLOR = "#4A90D9"
 
         metric_keys   = ["rom", "peak", "valley"]
@@ -1023,12 +1024,18 @@ class App(ctk.CTk):
         fig = Figure(figsize=(5.5, 3.0), tight_layout=True)
         ax  = fig.add_subplot(111)
 
+        all_tops: list[float] = []
+
         for i, (side, data) in enumerate(sides_data):
             extended = data.get("extended", {})
             means = [extended.get(mk, {}).get("mean", float("nan"))
                      for mk in metric_keys]
             sds   = [extended.get(mk, {}).get("sd",   0.0)
                      for mk in metric_keys]
+
+            all_tops.extend(
+                m + s for m, s in zip(means, sds) if not _np.isnan(m)
+            )
 
             color  = _SIDE_COLORS.get(side, _DEFAULT_COLOR)
             offset = (i - (n_sides - 1) / 2) * bar_w
@@ -1054,6 +1061,10 @@ class App(ctk.CTk):
         ax.set_xticklabels(metric_labels, fontsize=9)
         ax.set_ylabel("°", fontsize=10)
         ax.grid(True, axis="y", alpha=0.3, zorder=0)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        if all_tops:
+            ax.set_ylim(bottom=0, top=max(all_tops) * 1.15)
         if n_sides > 1:
             ax.legend(fontsize=8, loc="upper right")
 
@@ -1061,6 +1072,10 @@ class App(ctk.CTk):
             canvas = FigureCanvasTkAgg(fig, master=parent)
             canvas.draw()
             canvas.get_tk_widget().pack(fill="both", expand=True)
+            ctk.CTkButton(
+                parent, text=t("export_chart"), width=130,
+                command=lambda f=fig, n=mv_name: self._export_chart(f, n),
+            ).pack(anchor="e", padx=4, pady=(2, 0))
         except Exception as exc:
             ctk.CTkLabel(parent, text=t("s4_chart_unavailable").format(exc=exc),
                          text_color="gray").pack(padx=8, pady=4)
@@ -1206,6 +1221,16 @@ class App(ctk.CTk):
             msg += t("s4_csv_offset_applied").format(
                 notes="\n".join(notes))
         messagebox.showinfo(t("s4_csv_saved_title"), msg)
+
+    def _export_chart(self, fig, name: str = "chart") -> None:
+        path = filedialog.asksaveasfilename(
+            title=t("export_chart_dialog_title"),
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("All files", "*.*")],
+            initialfile=f"{name or 'chart'}.png",
+        )
+        if path:
+            fig.savefig(path, dpi=150, bbox_inches="tight")
 
     def _generate_report(self) -> None:
         messagebox.showinfo(t("s4_report_coming_title"),

@@ -241,4 +241,9 @@ def plot_rom_summary(
     ax.set_ylabel("ROM (°)", fontsize=10)
     ax.set_title("Range of Motion — Mean ± SD", fontsize=11)
     ax.grid(True, axis="y", alpha=0.3, zorder=0)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    valid_tops = [m + s for m, s in zip(means, sds) if not np.isnan(m)]
+    if valid_tops:
+        ax.set_ylim(bottom=0, top=max(valid_tops) * 1.15)
     return fig
