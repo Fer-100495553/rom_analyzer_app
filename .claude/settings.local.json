@@ -7,7 +7,11 @@
       "Bash(git fetch *)",
       "Bash(git branch *)",
       "Bash(git pull *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(Get-ChildItem -Path 'c:\\\\Projects\\\\ROM_analyzer' -Filter '*.py' -File)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "PowerShell(@\\(Get-Content 'c:\\\\Projects\\\\ROM_analyzer\\\\individual_review.py'\\).Count)",
+      "Bash(venv\\\\Scripts\\\\python.exe -c \"import translations; import gui; print\\('OK'\\)\")"
     ]
   }
 }
