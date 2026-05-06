@@ -272,6 +272,53 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "  0 markers placed.",
         "es": "  0 marcadores colocados.",
     },
+    "seg_halfcycle_direction": {
+        "en": "Half-cycle direction",
+        "es": "Dirección del semiciclo",
+    },
+    "seg_half_peak_to_valley": {"en": "Peak to Valley", "es": "Pico a Valle"},
+    "seg_half_valley_to_peak": {"en": "Valley to Peak", "es": "Valle a Pico"},
+    "seg_reset_selection": {"en": "Reset Selection", "es": "Restablecer Selección"},
+    "seg_rep_excluded": {"en": "(excluded)", "es": "(excluida)"},
+    "seg_no_active_title": {
+        "en": "No active segments",
+        "es": "Sin segmentos activos",
+    },
+    "seg_no_active_msg": {
+        "en": "All segments are excluded. Re-include at least one before accepting.",
+        "es": "Todos los segmentos están excluidos. Reactive al menos uno antes de aceptar.",
+    },
+    # ── Excel Export ──────────────────────────────────────────────────────
+    "s4_export_xlsx": {"en": "Export Excel", "es": "Exportar Excel"},
+    "s4_xlsx_win_title": {"en": "Export to Excel", "es": "Exportar a Excel"},
+    "s4_xlsx_select_sheets": {
+        "en": "Select sheets to include:",
+        "es": "Seleccionar hojas a incluir:",
+    },
+    "s4_xlsx_sheet_summary": {"en": "Summary", "es": "Resumen"},
+    "s4_xlsx_sheet_rep_detail": {
+        "en": "Repetitions Detail",
+        "es": "Detalle de Repeticiones",
+    },
+    "s4_xlsx_sheet_raw_data": {"en": "Raw Data", "es": "Datos Sin Procesar"},
+    "s4_xlsx_export_btn": {"en": "Export", "es": "Exportar"},
+    "s4_xlsx_no_sheets_title": {
+        "en": "No sheets selected",
+        "es": "Sin hojas seleccionadas",
+    },
+    "s4_xlsx_no_sheets_msg": {
+        "en": "Please select at least one sheet.",
+        "es": "Por favor, seleccione al menos una hoja.",
+    },
+    "s4_xlsx_saved_title": {"en": "Saved", "es": "Guardado"},
+    "s4_xlsx_saved_msg": {
+        "en": "Excel saved:\n{path}",
+        "es": "Excel guardado:\n{path}",
+    },
+    "s4_xlsx_dialog_title": {
+        "en": "Save Excel file",
+        "es": "Guardar archivo Excel",
+    },
 }
 
 

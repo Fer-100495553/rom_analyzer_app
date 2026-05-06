@@ -72,6 +72,7 @@ class App(ctk.CTk):
         self._process_btn: ctk.CTkButton | None = None
         self._processed: dict[tuple[str, str], dict] = {}
         self._layout_vertical: bool = True
+        self._charts: dict = {}
 
         # Navigation state (used to re-render on language change)
         self._current_screen: int = 1
@@ -914,6 +915,7 @@ class App(ctk.CTk):
     def _show_screen_4(self) -> None:
         self._current_screen = 4
         self._clear_container()
+        self._charts = {}
         # _layout_vertical preserved across toggles and re-renders
 
         f = ctk.CTkFrame(self._container, fg_color="transparent")
@@ -949,8 +951,8 @@ class App(ctk.CTk):
         btn_row.pack(fill="x", pady=(6, 0))
 
         ctk.CTkButton(
-            btn_row, text=t("s4_export_csv"), width=130,
-            command=self._export_csv,
+            btn_row, text=t("s4_export_xlsx"), width=130,
+            command=self._export_xlsx_dialog,
         ).pack(side="left")
         ctk.CTkButton(
             btn_row, text=t("s4_new_analysis"), width=160,
@@ -1068,6 +1070,7 @@ class App(ctk.CTk):
         if n_sides > 1:
             ax.legend(fontsize=8, loc="upper right")
 
+        self._charts[mv_name] = fig
         try:
             canvas = FigureCanvasTkAgg(fig, master=parent)
             canvas.draw()
@@ -1221,6 +1224,285 @@ class App(ctk.CTk):
             msg += t("s4_csv_offset_applied").format(
                 notes="\n".join(notes))
         messagebox.showinfo(t("s4_csv_saved_title"), msg)
+
+    def _export_xlsx_dialog(self) -> None:
+        if not self._processed:
+            return
+
+        win = ctk.CTkToplevel(self)
+        win.title(t("s4_xlsx_win_title"))
+        win.geometry("340x230")
+        win.resizable(False, False)
+        win.grab_set()
+        win.lift()
+        win.focus_force()
+
+        ctk.CTkLabel(
+            win, text=t("s4_xlsx_select_sheets"),
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(padx=20, pady=(16, 8))
+
+        var_summary = ctk.BooleanVar(value=True)
+        var_rep     = ctk.BooleanVar(value=True)
+        var_raw     = ctk.BooleanVar(value=True)
+
+        ctk.CTkCheckBox(
+            win, text=t("s4_xlsx_sheet_summary"), variable=var_summary,
+        ).pack(anchor="w", padx=32, pady=4)
+        ctk.CTkCheckBox(
+            win, text=t("s4_xlsx_sheet_rep_detail"), variable=var_rep,
+        ).pack(anchor="w", padx=32, pady=4)
+        ctk.CTkCheckBox(
+            win, text=t("s4_xlsx_sheet_raw_data"), variable=var_raw,
+        ).pack(anchor="w", padx=32, pady=4)
+
+        def _do_export():
+            selected = []
+            if var_summary.get():
+                selected.append("summary")
+            if var_rep.get():
+                selected.append("rep_detail")
+            if var_raw.get():
+                selected.append("raw_data")
+            if not selected:
+                messagebox.showwarning(
+                    t("s4_xlsx_no_sheets_title"),
+                    t("s4_xlsx_no_sheets_msg"),
+                    parent=win,
+                )
+                return
+            path = filedialog.asksaveasfilename(
+                parent=win,
+                title=t("s4_xlsx_dialog_title"),
+                defaultextension=".xlsx",
+                filetypes=[("Excel", "*.xlsx")],
+                initialfile="ROM_Summary.xlsx",
+            )
+            if not path:
+                return
+            win.destroy()
+            self._build_and_save_xlsx(path, selected)
+
+        btn_frame = ctk.CTkFrame(win, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(12, 16))
+        ctk.CTkButton(
+            btn_frame, text=t("s4_xlsx_export_btn"), command=_do_export,
+        ).pack(side="right")
+
+    def _build_and_save_xlsx(self, path: str, sheets: list) -> None:
+        import openpyxl
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+
+        groups: dict = {}
+        for (mv_name, side), data in self._processed.items():
+            groups.setdefault(mv_name, []).append((side, data))
+
+        if "summary" in sheets:
+            ws = wb.create_sheet(t("s4_xlsx_sheet_summary"))
+            self._xl_write_summary(ws, groups)
+
+        if "rep_detail" in sheets:
+            ws = wb.create_sheet(t("s4_xlsx_sheet_rep_detail"))
+            self._xl_write_rep_detail(ws, groups)
+
+        if "raw_data" in sheets:
+            ws = wb.create_sheet(t("s4_xlsx_sheet_raw_data"))
+            self._xl_write_raw_data(ws, groups)
+
+        wb.save(path)
+        messagebox.showinfo(
+            t("s4_xlsx_saved_title"),
+            t("s4_xlsx_saved_msg").format(path=path),
+        )
+
+    def _xl_write_summary(self, ws, groups: dict) -> None:
+        import io
+        import math as _math
+        from openpyxl.styles import Font
+        from openpyxl.drawing.image import Image as XLImage
+
+        bold = Font(bold=True)
+        headers = [
+            t("s4_hdr_movement"), t("s4_hdr_side"), t("s4_hdr_metric"),
+            t("s4_hdr_n"), t("s4_hdr_mean"), t("s4_hdr_sd"),
+            t("s4_hdr_min"), t("s4_hdr_max"),
+        ]
+        for c, h in enumerate(headers, 1):
+            ws.cell(row=1, column=c, value=h).font = bold
+
+        metric_items = [
+            (t("s4_metric_rom"),    "rom"),
+            (t("s4_metric_peak"),   "peak"),
+            (t("s4_metric_valley"), "valley"),
+        ]
+        row = 2
+        for mv_name, sides_data in groups.items():
+            mv_start = row
+            for side, data in sides_data:
+                extended = data.get("extended", {})
+                for metric_label, metric_key in metric_items:
+                    stats  = extended.get(metric_key, {})
+                    values = stats.get("values", [])
+                    mean_v = stats.get("mean", float("nan"))
+                    sd_v   = stats.get("sd",   0.0)
+                    min_v  = stats.get("min",  float("nan"))
+                    max_v  = stats.get("max",  float("nan"))
+                    ws.cell(row=row, column=1, value=mv_name)
+                    ws.cell(row=row, column=2, value=side)
+                    ws.cell(row=row, column=3, value=metric_label)
+                    ws.cell(row=row, column=4, value=len(values))
+                    ws.cell(row=row, column=5,
+                            value=round(mean_v, 2) if not _math.isnan(mean_v) else None)
+                    ws.cell(row=row, column=6, value=round(sd_v, 2))
+                    ws.cell(row=row, column=7,
+                            value=round(min_v, 2) if not _math.isnan(min_v) else None)
+                    ws.cell(row=row, column=8,
+                            value=round(max_v, 2) if not _math.isnan(max_v) else None)
+                    row += 1
+
+            chart_fig = self._charts.get(mv_name)
+            if chart_fig is not None:
+                try:
+                    buf = io.BytesIO()
+                    chart_fig.savefig(buf, format="png", dpi=120, bbox_inches="tight")
+                    buf.seek(0)
+                    img = XLImage(buf)
+                    img.width  = 480
+                    img.height = 260
+                    ws.add_image(img, f"J{mv_start}")
+                except Exception:
+                    pass
+            row += 1
+
+    def _xl_write_rep_detail(self, ws, groups: dict) -> None:
+        import math as _math
+        import numpy as _np
+        from openpyxl.styles import Font
+
+        bold = Font(bold=True)
+        row = 1
+
+        for mv_name, sides_data in groups.items():
+            ws.cell(row=row, column=1, value=mv_name).font = bold
+            row += 1
+
+            all_reps: dict = {}
+            for side, data in sides_data:
+                reps: list = []
+                segments  = data.get("segments", [])
+                angle_arr = data.get("angle_data")
+                extended  = data.get("extended", {})
+
+                if segments and isinstance(angle_arr, _np.ndarray):
+                    for i, (s, e) in enumerate(segments):
+                        chunk = angle_arr[s : e + 1]
+                        valid = chunk[~_np.isnan(chunk)]
+                        if valid.size == 0:
+                            reps.append({
+                                "rep": i + 1, "peak": None, "peak_frame": None,
+                                "valley": None, "valley_frame": None, "rom": None,
+                            })
+                        else:
+                            pk_fr  = s + int(_np.nanargmax(chunk))
+                            vl_fr  = s + int(_np.nanargmin(chunk))
+                            pk_val = float(_np.nanmax(chunk))
+                            vl_val = float(_np.nanmin(chunk))
+                            reps.append({
+                                "rep":          i + 1,
+                                "peak":         round(pk_val, 2),
+                                "peak_frame":   pk_fr,
+                                "valley":       round(vl_val, 2),
+                                "valley_frame": vl_fr,
+                                "rom":          round(pk_val - vl_val, 2),
+                            })
+                else:
+                    peak_vals   = extended.get("peak",   {}).get("values", [])
+                    valley_vals = extended.get("valley", {}).get("values", [])
+                    rom_vals    = extended.get("rom",    {}).get("values", [])
+                    n = max(len(peak_vals), len(valley_vals), len(rom_vals), 0)
+                    for i in range(n):
+                        pk = peak_vals[i]   if i < len(peak_vals)   else float("nan")
+                        vl = valley_vals[i] if i < len(valley_vals) else float("nan")
+                        rm = rom_vals[i]    if i < len(rom_vals)    else float("nan")
+                        reps.append({
+                            "rep":          i + 1,
+                            "peak":         round(pk, 2) if not _math.isnan(pk) else None,
+                            "peak_frame":   None,
+                            "valley":       round(vl, 2) if not _math.isnan(vl) else None,
+                            "valley_frame": None,
+                            "rom":          round(rm, 2) if not _math.isnan(rm) else None,
+                        })
+                all_reps[side] = reps
+
+            col = 1
+            ws.cell(row=row, column=col, value="Rep").font = bold
+            col += 1
+            for side, _ in sides_data:
+                ws.cell(row=row, column=col,     value=f"{side} Peak (°)").font     = bold
+                ws.cell(row=row, column=col + 1, value=f"{side} Peak Frame").font   = bold
+                ws.cell(row=row, column=col + 2, value=f"{side} Valley (°)").font   = bold
+                ws.cell(row=row, column=col + 3, value=f"{side} Valley Frame").font = bold
+                ws.cell(row=row, column=col + 4, value=f"{side} ROM (°)").font      = bold
+                col += 5
+            row += 1
+
+            max_reps = max((len(r) for r in all_reps.values()), default=0)
+            for rep_i in range(max_reps):
+                ws.cell(row=row, column=1, value=rep_i + 1)
+                col = 2
+                for side, _ in sides_data:
+                    reps = all_reps.get(side, [])
+                    if rep_i < len(reps):
+                        r = reps[rep_i]
+                        ws.cell(row=row, column=col,     value=r["peak"])
+                        ws.cell(row=row, column=col + 1, value=r["peak_frame"])
+                        ws.cell(row=row, column=col + 2, value=r["valley"])
+                        ws.cell(row=row, column=col + 3, value=r["valley_frame"])
+                        ws.cell(row=row, column=col + 4, value=r["rom"])
+                    col += 5
+                row += 1
+            row += 1
+
+    def _xl_write_raw_data(self, ws, groups: dict) -> None:
+        import math as _math
+        import numpy as _np
+        from openpyxl.styles import Font
+
+        bold = Font(bold=True)
+        row = 1
+
+        for mv_name, sides_data in groups.items():
+            ws.cell(row=row, column=1, value=mv_name).font = bold
+            row += 1
+
+            side_arrays: dict = {}
+            max_len = 0
+            for side, data in sides_data:
+                arr = data.get("angle_data")
+                if isinstance(arr, _np.ndarray):
+                    side_arrays[side] = arr
+                    max_len = max(max_len, len(arr))
+
+            ws.cell(row=row, column=1, value="Frame").font = bold
+            for c_i, (side, _) in enumerate(sides_data):
+                ws.cell(row=row, column=c_i + 2, value=f"{side} (°)").font = bold
+            row += 1
+
+            sides_order = [side for side, _ in sides_data]
+            for fr in range(max_len):
+                ws.cell(row=row, column=1, value=fr)
+                for c_i, side in enumerate(sides_order):
+                    arr = side_arrays.get(side)
+                    if arr is not None and fr < len(arr):
+                        val = float(arr[fr])
+                        ws.cell(
+                            row=row, column=c_i + 2,
+                            value=None if _math.isnan(val) else round(val, 4),
+                        )
+                row += 1
+            row += 1
 
     def _export_chart(self, fig, name: str = "chart") -> None:
         path = filedialog.asksaveasfilename(
