@@ -1515,8 +1515,29 @@ class App(ctk.CTk):
             fig.savefig(path, dpi=150, bbox_inches="tight")
 
     def _generate_report(self) -> None:
-        messagebox.showinfo(t("s4_report_coming_title"),
-                            t("s4_report_coming_msg"))
+        if not self._processed:
+            return
+
+        out_path = filedialog.asksaveasfilename(
+            title=t("s4_excel_dialog_title"),
+            defaultextension=".xlsx",
+            filetypes=[("Excel Workbook", "*.xlsx"), ("All files", "*.*")],
+            initialfile="ROM_Report.xlsx",
+        )
+        if not out_path:
+            return
+
+        try:
+            from excel_export import export_excel
+            export_excel(self._processed, out_path)
+        except Exception as exc:
+            messagebox.showerror("Export error", str(exc))
+            return
+
+        messagebox.showinfo(
+            t("s4_excel_saved_title"),
+            t("s4_excel_saved_msg").format(path=out_path),
+        )
 
     def _new_analysis(self) -> None:
         self._import_rows.clear()

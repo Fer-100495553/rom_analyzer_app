@@ -288,7 +288,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "All segments are excluded. Re-include at least one before accepting.",
         "es": "Todos los segmentos están excluidos. Reactive al menos uno antes de aceptar.",
     },
-    # ── Excel Export ──────────────────────────────────────────────────────
+    # ── Excel Export ──────────────────────────────────────────────────────────
     "s4_export_xlsx": {"en": "Export Excel", "es": "Exportar Excel"},
     "s4_xlsx_win_title": {"en": "Export to Excel", "es": "Exportar a Excel"},
     "s4_xlsx_select_sheets": {
@@ -318,6 +318,31 @@ _STRINGS: dict[str, dict[str, str]] = {
     "s4_xlsx_dialog_title": {
         "en": "Save Excel file",
         "es": "Guardar archivo Excel",
+    },
+    # ── Excel export (refactor) ───────────────────────────────────────────────
+    "left_side": {
+        "en": "LEFT SIDE",
+        "es": "LADO IZQUIERDO",
+    },
+    "right_side": {
+        "en": "RIGHT SIDE",
+        "es": "LADO DERECHO",
+    },
+    "frame": {"en": "Frame", "es": "Fotograma"},
+    "angle_deg": {"en": "Angle (°)", "es": "Ángulo (°)"},
+    "no_data": {"en": "No data", "es": "Sin datos"},
+    "rom_summary_chart_title": {
+        "en": "ROM Summary",
+        "es": "Resumen ROM",
+    },
+    "s4_excel_dialog_title": {
+        "en": "Save Excel Report",
+        "es": "Guardar Informe Excel",
+    },
+    "s4_excel_saved_title": {"en": "Saved", "es": "Guardado"},
+    "s4_excel_saved_msg": {
+        "en": "Excel report saved:\n{path}",
+        "es": "Informe Excel guardado:\n{path}",
     },
 }
 
