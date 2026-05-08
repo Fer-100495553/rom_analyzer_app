@@ -344,6 +344,20 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Excel report saved:\n{path}",
         "es": "Informe Excel guardado:\n{path}",
     },
+    # ── Excel column headers (rep detail + raw data) ──────────────────────────
+    "col_time_s": {"en": "Time (s)", "es": "Tiempo (s)"},
+    "left_col_peak_frame":   {"en": "Left Peak Frame",    "es": "Fotograma Máx. Izq."},
+    "left_col_peak_time":    {"en": "Left Peak Time (s)", "es": "Tiempo Máx. Izq. (s)"},
+    "left_col_peak_angle":   {"en": "Left Peak (°)",      "es": "Máximo Izq. (°)"},
+    "left_col_valley_frame": {"en": "Left Valley Frame",    "es": "Fotograma Mín. Izq."},
+    "left_col_valley_time":  {"en": "Left Valley Time (s)", "es": "Tiempo Mín. Izq. (s)"},
+    "left_col_valley_angle": {"en": "Left Valley (°)",      "es": "Mínimo Izq. (°)"},
+    "right_col_peak_frame":   {"en": "Right Peak Frame",    "es": "Fotograma Máx. Der."},
+    "right_col_peak_time":    {"en": "Right Peak Time (s)", "es": "Tiempo Máx. Der. (s)"},
+    "right_col_peak_angle":   {"en": "Right Peak (°)",      "es": "Máximo Der. (°)"},
+    "right_col_valley_frame": {"en": "Right Valley Frame",    "es": "Fotograma Mín. Der."},
+    "right_col_valley_time":  {"en": "Right Valley Time (s)", "es": "Tiempo Mín. Der. (s)"},
+    "right_col_valley_angle": {"en": "Right Valley (°)",      "es": "Mínimo Der. (°)"},
 }
 
 

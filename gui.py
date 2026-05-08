@@ -1436,16 +1436,21 @@ class App(ctk.CTk):
                         })
                 all_reps[side] = reps
 
+            # Column order per side: Peak Frame | Peak Time (s) | Peak (°) |
+            #                        Valley Frame | Valley Time (s) | Valley (°) | ROM (°)
             col = 1
             ws.cell(row=row, column=col, value="Rep").font = bold
             col += 1
             for side, _ in sides_data:
-                ws.cell(row=row, column=col,     value=f"{side} Peak (°)").font     = bold
-                ws.cell(row=row, column=col + 1, value=f"{side} Peak Frame").font   = bold
-                ws.cell(row=row, column=col + 2, value=f"{side} Valley (°)").font   = bold
-                ws.cell(row=row, column=col + 3, value=f"{side} Valley Frame").font = bold
-                ws.cell(row=row, column=col + 4, value=f"{side} ROM (°)").font      = bold
-                col += 5
+                pfx = "right_" if side == "Right" else "left_"
+                ws.cell(row=row, column=col,     value=t(pfx + "col_peak_frame")).font   = bold
+                ws.cell(row=row, column=col + 1, value=t(pfx + "col_peak_time")).font    = bold
+                ws.cell(row=row, column=col + 2, value=t(pfx + "col_peak_angle")).font   = bold
+                ws.cell(row=row, column=col + 3, value=t(pfx + "col_valley_frame")).font = bold
+                ws.cell(row=row, column=col + 4, value=t(pfx + "col_valley_time")).font  = bold
+                ws.cell(row=row, column=col + 5, value=t(pfx + "col_valley_angle")).font = bold
+                ws.cell(row=row, column=col + 6, value="ROM (°)").font                   = bold
+                col += 7
             row += 1
 
             max_reps = max((len(r) for r in all_reps.values()), default=0)
@@ -1456,12 +1461,18 @@ class App(ctk.CTk):
                     reps = all_reps.get(side, [])
                     if rep_i < len(reps):
                         r = reps[rep_i]
-                        ws.cell(row=row, column=col,     value=r["peak"])
-                        ws.cell(row=row, column=col + 1, value=r["peak_frame"])
-                        ws.cell(row=row, column=col + 2, value=r["valley"])
-                        ws.cell(row=row, column=col + 3, value=r["valley_frame"])
-                        ws.cell(row=row, column=col + 4, value=r["rom"])
-                    col += 5
+                        pk_fr = r["peak_frame"]
+                        vl_fr = r["valley_frame"]
+                        ws.cell(row=row, column=col,     value=pk_fr)
+                        ws.cell(row=row, column=col + 1,
+                                value=round(pk_fr / 100.0, 2) if pk_fr is not None else None)
+                        ws.cell(row=row, column=col + 2, value=r["peak"])
+                        ws.cell(row=row, column=col + 3, value=vl_fr)
+                        ws.cell(row=row, column=col + 4,
+                                value=round(vl_fr / 100.0, 2) if vl_fr is not None else None)
+                        ws.cell(row=row, column=col + 5, value=r["valley"])
+                        ws.cell(row=row, column=col + 6, value=r["rom"])
+                    col += 7
                 row += 1
             row += 1
 
@@ -1469,6 +1480,7 @@ class App(ctk.CTk):
         import math as _math
         import numpy as _np
         from openpyxl.styles import Font
+        from openpyxl.chart import LineChart, Reference, Series
 
         bold = Font(bold=True)
         row = 1
@@ -1485,23 +1497,49 @@ class App(ctk.CTk):
                     side_arrays[side] = arr
                     max_len = max(max_len, len(arr))
 
+            # Headers: Frame | Time (s) | side1 (°) | side2 (°) ...
             ws.cell(row=row, column=1, value="Frame").font = bold
+            ws.cell(row=row, column=2, value=t("col_time_s")).font = bold
             for c_i, (side, _) in enumerate(sides_data):
-                ws.cell(row=row, column=c_i + 2, value=f"{side} (°)").font = bold
+                ws.cell(row=row, column=c_i + 3, value=f"{side} (°)").font = bold
             row += 1
 
+            data_start_row = row
             sides_order = [side for side, _ in sides_data]
             for fr in range(max_len):
                 ws.cell(row=row, column=1, value=fr)
+                ws.cell(row=row, column=2, value=round(fr / 100.0, 2))
                 for c_i, side in enumerate(sides_order):
                     arr = side_arrays.get(side)
                     if arr is not None and fr < len(arr):
                         val = float(arr[fr])
                         ws.cell(
-                            row=row, column=c_i + 2,
+                            row=row, column=c_i + 3,
                             value=None if _math.isnan(val) else round(val, 4),
                         )
                 row += 1
+
+            data_end_row = row - 1
+
+            # Native LineChart anchored 2 rows below the last data row at column I
+            if max_len > 0:
+                chart = LineChart()
+                chart.title = mv_name
+                chart.x_axis.title = t("col_time_s")
+                chart.width  = 15
+                chart.height = 10
+
+                x_ref = Reference(ws, min_col=2, max_col=2,
+                                  min_row=data_start_row, max_row=data_end_row)
+                for c_i, side in enumerate(sides_order):
+                    y_ref = Reference(ws, min_col=c_i + 3, max_col=c_i + 3,
+                                      min_row=data_start_row, max_row=data_end_row)
+                    series_title = t("left_side") if side != "Right" else t("right_side")
+                    s = Series(y_ref, title=series_title)
+                    chart.append(s)
+                chart.set_categories(x_ref)
+                ws.add_chart(chart, f"I{data_end_row + 2}")
+
             row += 1
 
     def _export_chart(self, fig, name: str = "chart") -> None:
