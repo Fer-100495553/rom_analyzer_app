@@ -466,6 +466,7 @@ class App(ctk.CTk):
                         "rep_idx":          rep_idx,
                         "loaded":           False,
                         "filename":         "",
+                        "c3d_path":         "",
                         "angle_data":       None,
                         "angle_data_left":  None,
                         "angle_data_right": None,
@@ -621,8 +622,8 @@ class App(ctk.CTk):
         if old is None or not old.get("loaded"):
             return
 
-        for field in ("loaded", "filename", "angle_data", "angle_data_left",
-                      "angle_data_right", "frame_rate", "events"):
+        for field in ("loaded", "filename", "c3d_path", "angle_data",
+                      "angle_data_left", "angle_data_right", "frame_rate", "events"):
             if field in old:
                 row_data[field] = old[field]
 
@@ -714,6 +715,7 @@ class App(ctk.CTk):
 
         row_data["loaded"]     = True
         row_data["filename"]   = fname
+        row_data["c3d_path"]   = path
         row_data["frame_rate"] = c3d_data["frame_rate"]
         row_data["events"]     = c3d_data.get("events", [])
 
@@ -798,6 +800,7 @@ class App(ctk.CTk):
                         "angle_data": angle_arr,
                         "frame_rate": frame_rate,
                         "offset":     offset_val,
+                        "c3d_path":   row_data.get("c3d_path", ""),
                         "extended":   compute_extended_stats_array(
                             angle_arr, segs),
                         **win.result,
@@ -865,6 +868,7 @@ class App(ctk.CTk):
                             "angle_data": win.result["angle_data"],
                             "frame_rate": reps[0]["frame_rate"],
                             "offset":     win.result["offset"],
+                            "c3d_path":   reps[0].get("c3d_path", ""),
                             "extended":   win.result["extended"],
                             "segments":   [],
                         }
@@ -895,6 +899,7 @@ class App(ctk.CTk):
                         "angle_data": win.result["angle_data"],
                         "frame_rate": reps[0]["frame_rate"],
                         "offset":     win.result["offset"],
+                        "c3d_path":   reps[0].get("c3d_path", ""),
                         "extended":   win.result["extended"],
                         "segments":   [],
                     }
@@ -1231,7 +1236,7 @@ class App(ctk.CTk):
 
         win = ctk.CTkToplevel(self)
         win.title(t("s4_xlsx_win_title"))
-        win.geometry("340x230")
+        win.geometry("340x360")
         win.resizable(False, False)
         win.grab_set()
         win.lift()
@@ -1242,9 +1247,12 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=13, weight="bold"),
         ).pack(padx=20, pady=(16, 8))
 
-        var_summary = ctk.BooleanVar(value=True)
-        var_rep     = ctk.BooleanVar(value=True)
-        var_raw     = ctk.BooleanVar(value=True)
+        var_summary  = ctk.BooleanVar(value=True)
+        var_rep      = ctk.BooleanVar(value=True)
+        var_raw      = ctk.BooleanVar(value=True)
+        var_distance = ctk.BooleanVar(value=False)
+        var_t8       = ctk.BooleanVar(value=True)
+        var_c7       = ctk.BooleanVar(value=True)
 
         ctk.CTkCheckBox(
             win, text=t("s4_xlsx_sheet_summary"), variable=var_summary,
@@ -1256,6 +1264,24 @@ class App(ctk.CTk):
             win, text=t("s4_xlsx_sheet_raw_data"), variable=var_raw,
         ).pack(anchor="w", padx=32, pady=4)
 
+        # Distance comparison with sub-options
+        t8_cb = ctk.CTkCheckBox(win, text=t("dist_T8"), variable=var_t8,
+                                 state="disabled")
+        c7_cb = ctk.CTkCheckBox(win, text=t("dist_C7"), variable=var_c7,
+                                 state="disabled")
+
+        def _toggle_distance_sub():
+            state = "normal" if var_distance.get() else "disabled"
+            t8_cb.configure(state=state)
+            c7_cb.configure(state=state)
+
+        ctk.CTkCheckBox(
+            win, text=t("export_distance_comparison"), variable=var_distance,
+            command=_toggle_distance_sub,
+        ).pack(anchor="w", padx=32, pady=4)
+        t8_cb.pack(anchor="w", padx=52, pady=2)
+        c7_cb.pack(anchor="w", padx=52, pady=2)
+
         def _do_export():
             selected = []
             if var_summary.get():
@@ -1264,7 +1290,15 @@ class App(ctk.CTk):
                 selected.append("rep_detail")
             if var_raw.get():
                 selected.append("raw_data")
-            if not selected:
+
+            distance_markers: list[tuple[str, str]] = []
+            if var_distance.get():
+                if var_t8.get():
+                    distance_markers.append(("T8", "Diff_T8F_T8V"))
+                if var_c7.get():
+                    distance_markers.append(("C7", "Diff_C7F_C7_rec"))
+
+            if not selected and not distance_markers:
                 messagebox.showwarning(
                     t("s4_xlsx_no_sheets_title"),
                     t("s4_xlsx_no_sheets_msg"),
@@ -1281,7 +1315,7 @@ class App(ctk.CTk):
             if not path:
                 return
             win.destroy()
-            self._build_and_save_xlsx(path, selected)
+            self._build_and_save_xlsx(path, selected, distance_markers)
 
         btn_frame = ctk.CTkFrame(win, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=(12, 16))
@@ -1289,7 +1323,12 @@ class App(ctk.CTk):
             btn_frame, text=t("s4_xlsx_export_btn"), command=_do_export,
         ).pack(side="right")
 
-    def _build_and_save_xlsx(self, path: str, sheets: list) -> None:
+    def _build_and_save_xlsx(
+        self,
+        path: str,
+        sheets: list,
+        distance_markers: list | None = None,
+    ) -> None:
         import openpyxl
 
         wb = openpyxl.Workbook()
@@ -1310,6 +1349,15 @@ class App(ctk.CTk):
         if "raw_data" in sheets:
             ws = wb.create_sheet(t("s4_xlsx_sheet_raw_data"))
             self._xl_write_raw_data(ws, groups)
+
+        if distance_markers:
+            c3d_path = next(
+                (d.get("c3d_path", "") for d in self._processed.values()
+                 if d.get("c3d_path")),
+                "",
+            )
+            ws = wb.create_sheet(t("sheet_distance_comparison"))
+            self._xl_write_distance_comparison(ws, c3d_path, distance_markers)
 
         wb.save(path)
         messagebox.showinfo(
@@ -1481,66 +1529,183 @@ class App(ctk.CTk):
         import numpy as _np
         from openpyxl.styles import Font
         from openpyxl.chart import LineChart, Reference, Series
+        from openpyxl.utils import get_column_letter
 
         bold = Font(bold=True)
-        row = 1
+        TITLE_ROW    = 1
+        HEADER_ROW   = 2
+        DATA_START   = 3
+        current_col  = 1  # 1-based starting column of current movement block
 
         for mv_name, sides_data in groups.items():
-            ws.cell(row=row, column=1, value=mv_name).font = bold
-            row += 1
-
             side_arrays: dict = {}
-            max_len = 0
+            max_len    = 0
+            frame_rate = 100.0
             for side, data in sides_data:
                 arr = data.get("angle_data")
+                fr  = data.get("frame_rate")
+                if fr:
+                    frame_rate = float(fr)
                 if isinstance(arr, _np.ndarray):
                     side_arrays[side] = arr
                     max_len = max(max_len, len(arr))
 
-            # Headers: Frame | Time (s) | side1 (°) | side2 (°) ...
-            ws.cell(row=row, column=1, value="Frame").font = bold
-            ws.cell(row=row, column=2, value=t("col_time_s")).font = bold
-            for c_i, (side, _) in enumerate(sides_data):
-                ws.cell(row=row, column=c_i + 3, value=f"{side} (°)").font = bold
-            row += 1
+            n_sides     = len(sides_data)
+            block_width = 2 + n_sides  # Frame | Time (s) | side_0 (°) | …
 
-            data_start_row = row
-            sides_order = [side for side, _ in sides_data]
+            # Title row
+            ws.cell(row=TITLE_ROW, column=current_col, value=mv_name).font = bold
+
+            # Header row
+            ws.cell(row=HEADER_ROW, column=current_col,
+                    value="Frame").font = bold
+            ws.cell(row=HEADER_ROW, column=current_col + 1,
+                    value=t("col_time_s")).font = bold
+            for c_i, (side, _) in enumerate(sides_data):
+                ws.cell(row=HEADER_ROW, column=current_col + 2 + c_i,
+                        value=f"{side} (°)").font = bold
+
+            # Data rows
+            sides_order  = [side for side, _ in sides_data]
+            data_end_row = DATA_START - 1
             for fr in range(max_len):
-                ws.cell(row=row, column=1, value=fr)
-                ws.cell(row=row, column=2, value=round(fr / 100.0, 2))
+                r = DATA_START + fr
+                ws.cell(row=r, column=current_col,     value=fr)
+                ws.cell(row=r, column=current_col + 1,
+                        value=round(fr / frame_rate, 4))
                 for c_i, side in enumerate(sides_order):
                     arr = side_arrays.get(side)
                     if arr is not None and fr < len(arr):
                         val = float(arr[fr])
-                        ws.cell(
-                            row=row, column=c_i + 3,
-                            value=None if _math.isnan(val) else round(val, 4),
-                        )
-                row += 1
+                        ws.cell(row=r, column=current_col + 2 + c_i,
+                                value=None if _math.isnan(val) else round(val, 4))
+                data_end_row = r
 
-            data_end_row = row - 1
-
-            # Native LineChart anchored 2 rows below the last data row at column I
+            # Native LineChart anchored 2 rows below last data row,
+            # aligned to this block's starting column
             if max_len > 0:
                 chart = LineChart()
-                chart.title = mv_name
+                chart.title        = mv_name
                 chart.x_axis.title = t("col_time_s")
                 chart.width  = 15
                 chart.height = 10
 
-                x_ref = Reference(ws, min_col=2, max_col=2,
-                                  min_row=data_start_row, max_row=data_end_row)
+                x_ref = Reference(ws, min_col=current_col + 1,
+                                  max_col=current_col + 1,
+                                  min_row=DATA_START, max_row=data_end_row)
                 for c_i, side in enumerate(sides_order):
-                    y_ref = Reference(ws, min_col=c_i + 3, max_col=c_i + 3,
-                                      min_row=data_start_row, max_row=data_end_row)
-                    series_title = t("left_side") if side != "Right" else t("right_side")
+                    y_ref = Reference(ws, min_col=current_col + 2 + c_i,
+                                      max_col=current_col + 2 + c_i,
+                                      min_row=DATA_START, max_row=data_end_row)
+                    series_title = (t("left_side") if side != "Right"
+                                    else t("right_side"))
                     s = Series(y_ref, title=series_title)
                     chart.append(s)
                 chart.set_categories(x_ref)
-                ws.add_chart(chart, f"I{data_end_row + 2}")
+                anchor_col = get_column_letter(current_col)
+                ws.add_chart(chart, f"{anchor_col}{data_end_row + 2}")
 
-            row += 1
+            # Advance past this block + 1 empty separator column
+            current_col += block_width + 1
+
+    def _xl_write_distance_comparison(
+        self,
+        ws,
+        c3d_path: str,
+        markers: list[tuple[str, str]],
+    ) -> None:
+        import math as _math
+        from openpyxl.styles import Font
+        from openpyxl.chart import LineChart, Reference, Series
+        from validation_metrics import (
+            extract_diff_vector,
+            compute_euclidean_distance,
+            compute_validation_metrics,
+            compute_per_axis_mae,
+        )
+
+        bold = Font(bold=True)
+        block_start_row = 1
+
+        for block_idx, (marker_name, label_str) in enumerate(markers):
+            try:
+                diff, frame_rate = extract_diff_vector(c3d_path, label_str)
+            except Exception as exc:
+                logger.warning(
+                    "Distance comparison: skipping '%s' — %s", label_str, exc
+                )
+                continue
+
+            distance = compute_euclidean_distance(diff)
+            metrics  = compute_validation_metrics(distance)
+            per_axis = compute_per_axis_mae(diff)
+            n_frames = len(distance)
+
+            # Write time and distance data in dedicated columns (G+, H+ …)
+            # Each block uses a different pair of columns so they never overlap.
+            time_col = 7 + block_idx * 2   # col G for block 0, col I for block 1
+            dist_col = time_col + 1
+            for i in range(n_frames):
+                t_val = round(i / frame_rate, 4)
+                d_val = float(distance[i])
+                ws.cell(row=1 + i, column=time_col, value=t_val)
+                ws.cell(
+                    row=1 + i, column=dist_col,
+                    value=None if _math.isnan(d_val) else round(d_val, 4),
+                )
+
+            # Title row
+            ws.cell(row=block_start_row, column=1,
+                    value=f"{marker_name} — {label_str}").font = bold
+
+            # Header row
+            hdr_row = block_start_row + 1
+            ws.cell(row=hdr_row, column=1, value=t("dist_col_metric")).font = bold
+            ws.cell(row=hdr_row, column=2, value=t("dist_col_value")).font  = bold
+            ws.cell(row=hdr_row, column=3, value=t("dist_col_units")).font  = bold
+
+            # Data rows
+            data_row  = hdr_row + 1
+            row_specs = [
+                (t("dist_mean"),         round(metrics["mean_mm"],     3), t("dist_units_mm")),
+                (t("dist_sd"),           round(metrics["sd_mm"],       3), t("dist_units_mm")),
+                (t("dist_rmse"),         round(metrics["rmse_mm"],     3), t("dist_units_mm")),
+                (t("dist_max"),          round(metrics["max_mm"],      3), t("dist_units_mm")),
+                (t("dist_p95"),          round(metrics["p95_mm"],      3), t("dist_units_mm")),
+                (t("dist_mae_x"),        round(per_axis["mae_x_mm"],   3), t("dist_units_mm")),
+                (t("dist_mae_y"),        round(per_axis["mae_y_mm"],   3), t("dist_units_mm")),
+                (t("dist_mae_z"),        round(per_axis["mae_z_mm"],   3), t("dist_units_mm")),
+                (t("dist_valid_frames"),
+                 f"{metrics['n_valid']} / {metrics['n_frames']}",
+                 t("dist_units_none")),
+            ]
+            for metric_label, value, units in row_specs:
+                ws.cell(row=data_row, column=1, value=metric_label)
+                ws.cell(row=data_row, column=2, value=value)
+                ws.cell(row=data_row, column=3, value=units)
+                data_row += 1
+
+            metrics_end_row = data_row - 1
+
+            # LineChart anchored 2 rows below metrics table, column E
+            chart = LineChart()
+            chart.title        = marker_name
+            chart.y_axis.title = t("dist_y_axis")
+            chart.x_axis.title = t("col_time_s")
+            chart.width  = 15
+            chart.height = 10
+
+            x_ref = Reference(ws, min_col=time_col, max_col=time_col,
+                               min_row=1, max_row=n_frames)
+            y_ref = Reference(ws, min_col=dist_col, max_col=dist_col,
+                               min_row=1, max_row=n_frames)
+            s = Series(y_ref, title=marker_name)
+            chart.append(s)
+            chart.set_categories(x_ref)
+            ws.add_chart(chart, f"E{metrics_end_row + 2}")
+
+            # Next block: 2 empty rows after current metrics table
+            block_start_row = metrics_end_row + 3
 
     def _export_chart(self, fig, name: str = "chart") -> None:
         path = filedialog.asksaveasfilename(
