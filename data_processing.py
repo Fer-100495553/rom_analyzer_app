@@ -536,19 +536,32 @@ def compute_trunk_extended_angles(
     R_ref = R_frames[ref_idx]
 
     # ── Relative rotation → Euler ZXY ─────────────────────────────────────
+    # Intrinsic ZXY sequence (ISB, Wu et al. 2005):
+    #   index 0 → Z rotation = flexion/extension
+    #   index 1 → X rotation = lateral inclination  (PRIMARY)
+    #   index 2 → Y rotation = axial rotation
+    # degrees=True avoids the separate np.degrees() call and the risk of
+    # accidentally applying it twice.
     fe  = np.full(n_frames, np.nan)
     lat = np.full(n_frames, np.nan)
     ar  = np.full(n_frames, np.nan)
 
+    _debug_count = 0
     for i in range(n_frames):
         R_i = R_frames[i]
         if R_i is None:
             continue
-        R_rel = R_ref.T @ R_i
-        angles_rad = _Rotation.from_matrix(R_rel).as_euler("ZXY")
-        fe[i]  = np.degrees(angles_rad[0])   # Z — flexion/extension
-        lat[i] = np.degrees(angles_rad[1])   # X — lateral inclination (PRIMARY)
-        ar[i]  = np.degrees(angles_rad[2])   # Y — axial rotation
+        R_rel   = R_ref.T @ R_i
+        angles  = _Rotation.from_matrix(R_rel).as_euler("ZXY", degrees=True)
+        fe[i]   = angles[0]   # Z — flexion/extension
+        lat[i]  = angles[1]   # X — lateral inclination (PRIMARY)
+        ar[i]   = angles[2]   # Y — axial rotation
+        if _debug_count < 5:
+            logger.debug(
+                "Trunk Euler frame %d: FE=%.2f°  Lat=%.2f°  AR=%.2f°",
+                i, fe[i], lat[i], ar[i],
+            )
+            _debug_count += 1
 
     return {
         "flexion_extension":   fe,

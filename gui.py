@@ -1844,14 +1844,14 @@ class _TrunkSegmentationWindow(ctk.CTkToplevel):
         self._excluded_indices: set[int] = set()
         self._mode_var = ctk.StringVar(value="auto")
 
-        # ── Trunk inclination figure (3-panel) ────────────────────────────
+        # ── Trunk inclination figure (single panel — lateral inclination) ──
         self._trunk_fig = plot_trunk_inclination(
             trunk_angles, frame_rate, title=movement_name
         )
 
-        # The lateral_inclination axes (middle subplot) is where we overlay
-        # segmentation markers.
-        self._lat_ax = self._trunk_fig.axes[1]
+        # Single-panel figure: axes[0] is the lateral inclination subplot
+        # where segmentation overlays (bands, peak/valley markers) are drawn.
+        self._lat_ax = self._trunk_fig.axes[0]
 
         self._canvas = FigureCanvasTkAgg(self._trunk_fig, master=self)
         self._canvas.get_tk_widget().pack(
@@ -1884,7 +1884,7 @@ class _TrunkSegmentationWindow(ctk.CTkToplevel):
             ).pack(side="left", padx=6)
 
         # ── Mode panels ───────────────────────────────────────────────────
-        self._panel_container = ctk.CTkFrame(self, height=110)
+        self._panel_container = ctk.CTkFrame(self, height=155)
         self._panel_container.pack(fill="x", padx=10, pady=4)
         self._panel_container.pack_propagate(False)
 
@@ -1921,12 +1921,12 @@ class _TrunkSegmentationWindow(ctk.CTkToplevel):
     # ── Panel builders ─────────────────────────────────────────────────────
 
     def _build_auto_panel(self, parent) -> ctk.CTkFrame:
-        from config import DEFAULT_MIN_PROMINENCE, DEFAULT_MIN_DISTANCE
+        from config import TRUNK_LATERAL_MIN_PROMINENCE, TRUNK_LATERAL_MIN_DISTANCE
 
         pnl = ctk.CTkFrame(parent, fg_color="transparent")
 
-        self._prom_var = ctk.IntVar(value=DEFAULT_MIN_PROMINENCE)
-        self._dist_var = ctk.IntVar(value=DEFAULT_MIN_DISTANCE)
+        self._prom_var  = ctk.IntVar(value=TRUNK_LATERAL_MIN_PROMINENCE)
+        self._dist_var  = ctk.IntVar(value=TRUNK_LATERAL_MIN_DISTANCE)
         self._cycle_var = ctk.StringVar(value="halfcycle")
 
         row1 = ctk.CTkFrame(pnl, fg_color="transparent")
@@ -2163,7 +2163,6 @@ class _TrunkSegmentationWindow(ctk.CTkToplevel):
         # Auto peaks/valleys
         if self._mode_var.get() == "auto" and len(self._peaks):
             n = len(lat_data)
-            x_all = _np.arange(n) * scale
             lat_ax.plot(
                 self._peaks * scale,
                 lat_data[_np.clip(self._peaks, 0, n - 1)],

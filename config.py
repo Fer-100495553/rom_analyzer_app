@@ -73,6 +73,11 @@ DEFAULT_OUTLIER_THRESHOLD: int = 2  # standard deviations
 DEFAULT_PROMINENCE: int = DEFAULT_MIN_PROMINENCE
 OUTLIER_SD_THRESHOLD: int = DEFAULT_OUTLIER_THRESHOLD
 
+# Trunk lateral inclination has a smaller amplitude than arm movements,
+# so lower detection thresholds are needed.
+TRUNK_LATERAL_MIN_PROMINENCE: int = 5   # degrees
+TRUNK_LATERAL_MIN_DISTANCE: int = 30    # frames at 100 Hz
+
 # ── Normative ROM reference values (degrees, healthy subjects) ────────────
 NORMATIVE_ROM: dict[str, dict] = {
     "Shoulder Flex/Ext":           {"max": 170, "label": "Flexion"},
