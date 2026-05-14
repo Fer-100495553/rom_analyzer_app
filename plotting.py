@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import matplotlib.figure
 from matplotlib.figure import Figure
 
 # Palette for repetition shading / bar colors
@@ -83,6 +84,76 @@ def plot_rom_bars(results: dict) -> Figure:
 def save_figure(fig: Figure, path: str, dpi: int = 150) -> None:
     """Save a Figure to a file (PNG, PDF, SVG, …)."""
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
+
+
+def plot_trunk_inclination(
+    trunk_angles: dict,
+    frame_rate: int,
+    title: str = "Trunk Inclination",
+) -> matplotlib.figure.Figure:
+    """
+    Three-panel trunk inclination figure (flexion/extension, lateral, axial).
+
+    Lateral inclination (middle subplot) is highlighted as the primary variable.
+    NaN regions are shaded as grey bands.  Returns the Figure; does not call
+    plt.show().
+
+    Args:
+        trunk_angles: Output of :func:`data_processing.compute_trunk_extended_angles`.
+        frame_rate:   Capture rate in Hz (used for time axis).
+        title:        Overall figure title.
+    """
+    fe  = trunk_angles["flexion_extension"]
+    lat = trunk_angles["lateral_inclination"]
+    ar  = trunk_angles["axial_rotation"]
+
+    n = len(lat)
+    t = np.arange(n) / frame_rate
+
+    fig = Figure(figsize=(10, 7), tight_layout=True)
+    fig.suptitle(title, fontsize=12)
+    ax0 = fig.add_subplot(311)
+    ax1 = fig.add_subplot(312, sharex=ax0)
+    ax2 = fig.add_subplot(313, sharex=ax0)
+    axes = [ax0, ax1, ax2]
+
+    _configs = [
+        (axes[0], fe,  "tab:blue",  1.5, "Flexion / Extension"),
+        (axes[1], lat, "tab:red",   2.5, "Lateral Inclination (primary)"),
+        (axes[2], ar,  "tab:green", 1.5, "Axial Rotation"),
+    ]
+
+    for ax, data, color, lw, label in _configs:
+        ax.plot(t, data, linewidth=lw, color=color, label=label, zorder=2)
+        ax.axhline(0.0, color="black", linewidth=0.8, linestyle="--",
+                   alpha=0.6, zorder=1)
+        ax.set_ylabel("°", fontsize=9)
+        ax.grid(True, alpha=0.3, zorder=0)
+        ax.legend(fontsize=8, loc="upper right")
+
+        # Grey bands where data is NaN
+        nan_mask = np.isnan(data)
+        if nan_mask.any():
+            in_band = False
+            band_start = None
+            for i, is_nan in enumerate(nan_mask):
+                if is_nan and not in_band:
+                    band_start = t[i]
+                    in_band = True
+                elif not is_nan and in_band:
+                    ax.axvspan(band_start, t[i], color="grey",
+                               alpha=0.25, zorder=0)
+                    in_band = False
+            if in_band:
+                ax.axvspan(band_start, t[-1], color="grey",
+                           alpha=0.25, zorder=0)
+
+    axes[2].set_xlabel("Time (s)", fontsize=10)
+    # Suppress x-axis tick labels on top two subplots (sharex doesn't hide them)
+    for ax in axes[:2]:
+        ax.tick_params(labelbottom=False)
+
+    return fig
 
 
 # ── C3D / numpy-based plots ───────────────────────────────────────────────

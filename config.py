@@ -45,6 +45,17 @@ MOVEMENT_DEFINITIONS: dict[str, dict] = {
         "has_side_prefix": False,
         "optional": True,
     },
+    "Trunk Lateral Inclination": {
+        "type": "computed",
+        "compute_fn": "compute_trunk_extended_angles",
+        "primary_key": "lateral_inclination",
+        "label": "Trunk Lateral Inclination",
+        "unit": "°",
+        "has_side_prefix": False,
+        "sulm_variable": None,
+        "component": None,
+        "description": "Trunk lateral inclination computed from IJ/LeftLumbar/RightLumbar markers",
+    },
 }
 
 # Side prefixes are full words (verified from C3D label names)
@@ -70,6 +81,7 @@ NORMATIVE_ROM: dict[str, dict] = {
     "Elbow Flex/Ext":              {"max": 140, "label": "Flexion"},
     "Thorax Lateral Incl.":        {"max": 30,  "label": "Per side"},
     "Trunk Extended Lateral Incl.":{"max": 35,  "label": "Per side"},
+    "Trunk Lateral Inclination":   {"max": 35,  "label": "Per side"},
 }
 
 # ── Label-filtering keywords ──────────────────────────────────────────────

@@ -5,6 +5,7 @@ import math
 import os
 
 import customtkinter as ctk
+import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import filedialog, messagebox
@@ -656,7 +657,9 @@ class App(ctk.CTk):
         if not path:
             return
 
-        from data_processing import read_c3d, list_available_angles
+        from data_processing import (
+            read_c3d, list_available_angles, compute_trunk_extended_angles,
+        )
         from config import MOVEMENT_DEFINITIONS
 
         try:
@@ -668,50 +671,66 @@ class App(ctk.CTk):
             )
             return
 
-        mv_def      = MOVEMENT_DEFINITIONS[row_data["mv_name"]]
-        has_prefix  = mv_def["has_side_prefix"]
-        component   = mv_def["component"]
-        sulm_var    = mv_def["sulm_variable"]
+        mv_def    = MOVEMENT_DEFINITIONS[row_data["mv_name"]]
+        fname     = os.path.basename(path)
         model_outputs = c3d_data["model_outputs"]
-        fname = os.path.basename(path)
 
-        if row_data["bilateral"]:
-            var_left  = f"Left{sulm_var}"
-            var_right = f"Right{sulm_var}"
-            missing = [v for v in (var_left, var_right)
-                       if v not in model_outputs]
-            if missing:
-                available = list_available_angles(c3d_data)
+        # ── Computed type (marker-based, e.g. Trunk Lateral Inclination) ──
+        if mv_def.get("type") == "computed":
+            try:
+                trunk_angles = compute_trunk_extended_angles(c3d_data)
+            except (KeyError, ValueError) as exc:
                 messagebox.showwarning(
                     t("s2_vars_not_found_title"),
-                    t("s2_vars_not_found_msg").format(
-                        missing="\n  ".join(missing),
-                        available="\n  ".join(available),
-                    ),
+                    t("err_trunk_markers_missing").format(missing=str(exc)),
                 )
                 return
-            row_data["angle_data_left"]  = (
-                model_outputs[var_left][component, :].astype(float))
-            row_data["angle_data_right"] = (
-                model_outputs[var_right][component, :].astype(float))
-            row_data["angle_data"] = row_data["angle_data_left"]
+            row_data["trunk_angles"] = trunk_angles
+            row_data["angle_data"]   = trunk_angles[mv_def["primary_key"]]
 
+        # ── Standard SULM model-output type ───────────────────────────────
         else:
-            side = row_data["side"]
-            full_var = (f"{side}{sulm_var}"
-                        if has_prefix and side != _NO_SIDE else sulm_var)
-            if full_var not in model_outputs:
-                available = list_available_angles(c3d_data)
-                messagebox.showwarning(
-                    t("s2_var_not_found_title"),
-                    t("s2_var_not_found_msg").format(
-                        label=full_var,
-                        available="\n  ".join(available),
-                    ),
-                )
-                return
-            row_data["angle_data"] = (
-                model_outputs[full_var][component, :].astype(float))
+            has_prefix = mv_def["has_side_prefix"]
+            component  = mv_def["component"]
+            sulm_var   = mv_def["sulm_variable"]
+
+            if row_data["bilateral"]:
+                var_left  = f"Left{sulm_var}"
+                var_right = f"Right{sulm_var}"
+                missing = [v for v in (var_left, var_right)
+                           if v not in model_outputs]
+                if missing:
+                    available = list_available_angles(c3d_data)
+                    messagebox.showwarning(
+                        t("s2_vars_not_found_title"),
+                        t("s2_vars_not_found_msg").format(
+                            missing="\n  ".join(missing),
+                            available="\n  ".join(available),
+                        ),
+                    )
+                    return
+                row_data["angle_data_left"]  = (
+                    model_outputs[var_left][component, :].astype(float))
+                row_data["angle_data_right"] = (
+                    model_outputs[var_right][component, :].astype(float))
+                row_data["angle_data"] = row_data["angle_data_left"]
+
+            else:
+                side     = row_data["side"]
+                full_var = (f"{side}{sulm_var}"
+                            if has_prefix and side != _NO_SIDE else sulm_var)
+                if full_var not in model_outputs:
+                    available = list_available_angles(c3d_data)
+                    messagebox.showwarning(
+                        t("s2_var_not_found_title"),
+                        t("s2_var_not_found_msg").format(
+                            label=full_var,
+                            available="\n  ".join(available),
+                        ),
+                    )
+                    return
+                row_data["angle_data"] = (
+                    model_outputs[full_var][component, :].astype(float))
 
         row_data["loaded"]     = True
         row_data["filename"]   = fname
@@ -739,12 +758,15 @@ class App(ctk.CTk):
     def _start_segmentation(self) -> None:
         from segmentation import C3DSegmentationWindow
         from data_processing import apply_offset, compute_extended_stats_array
+        from config import MOVEMENT_DEFINITIONS
 
         for row_data in self._import_rows:
             mv_name    = row_data["mv_name"]
             frame_rate = row_data["frame_rate"]
             events     = row_data["events"] or []
             offset_on  = row_data["offset_var"].get()
+            mv_def     = MOVEMENT_DEFINITIONS[mv_name]
+            is_computed = mv_def.get("type") == "computed"
 
             if row_data["bilateral"]:
                 try:
@@ -762,11 +784,13 @@ class App(ctk.CTk):
                     ("Left",
                      apply_offset(row_data["angle_data_left"], off_l)
                      if offset_on else row_data["angle_data_left"],
-                     off_l if offset_on else None),
+                     off_l if offset_on else None,
+                     None),
                     ("Right",
                      apply_offset(row_data["angle_data_right"], off_r)
                      if offset_on else row_data["angle_data_right"],
-                     off_r if offset_on else None),
+                     off_r if offset_on else None,
+                     None),
                 ]
             else:
                 try:
@@ -776,20 +800,32 @@ class App(ctk.CTk):
                     off = 0.0
                 ang = (apply_offset(row_data["angle_data"], off)
                        if offset_on else row_data["angle_data"])
+                trunk_angles = row_data.get("trunk_angles") if is_computed else None
                 sides_to_seg = [(row_data["side"], ang,
-                                 off if offset_on else None)]
+                                 off if offset_on else None,
+                                 trunk_angles)]
 
-            for side, angle_arr, offset_val in sides_to_seg:
+            for side, angle_arr, offset_val, trunk_ang in sides_to_seg:
                 title = (f"{mv_name} — {side}"
                          if side != _NO_SIDE else mv_name)
 
-                win = C3DSegmentationWindow(
-                    self,
-                    movement_name=title,
-                    angle_data=angle_arr,
-                    frame_rate=frame_rate,
-                    events=events,
-                )
+                if is_computed and trunk_ang is not None:
+                    win = _TrunkSegmentationWindow(
+                        self,
+                        movement_name=title,
+                        angle_data=angle_arr,
+                        trunk_angles=trunk_ang,
+                        frame_rate=frame_rate,
+                        events=events,
+                    )
+                else:
+                    win = C3DSegmentationWindow(
+                        self,
+                        movement_name=title,
+                        angle_data=angle_arr,
+                        frame_rate=frame_rate,
+                        events=events,
+                    )
                 self.wait_window(win)
 
                 if win.result is not None:
@@ -1751,3 +1787,425 @@ class App(ctk.CTk):
         self._num_reps_var.set(6)
         self._layout_vertical = True
         self._show_screen_1()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  _TrunkSegmentationWindow — segmentation modal for computed trunk angles
+# ══════════════════════════════════════════════════════════════════════════
+
+class _TrunkSegmentationWindow(ctk.CTkToplevel):
+    """
+    Segmentation modal for Trunk Lateral Inclination.
+
+    Shows all three trunk angle components (via plot_trunk_inclination) as the
+    main visualisation while running segmentation on the lateral_inclination
+    1D array.  Supports Auto, Manual, and Events modes — identical behaviour
+    to C3DSegmentationWindow.
+
+    After accept, ``self.result`` holds the same dict structure as
+    C3DSegmentationWindow (segments, roms, mean, sd, outlier_flags).
+    """
+
+    def __init__(
+        self,
+        parent,
+        movement_name: str,
+        angle_data: np.ndarray,
+        trunk_angles: dict,
+        frame_rate: int,
+        events: list[dict] | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.title(f"{t('seg_window_title')} — {movement_name}")
+        self.geometry("1060x820")
+        self.grab_set()
+        self.lift()
+        self.focus_force()
+
+        import numpy as _np
+        from matplotlib.backends.backend_tkagg import (
+            FigureCanvasTkAgg, NavigationToolbar2Tk,
+        )
+        from plotting import plot_trunk_inclination
+
+        self._angle_data  = angle_data.astype(float)
+        self._trunk_angles = trunk_angles
+        self._frame_rate  = frame_rate
+        self._events      = events or []
+        self._movement_name = movement_name
+
+        self.result: dict | None = None
+
+        # ── Segmentation state ────────────────────────────────────────────
+        self._segments: list[tuple[int, int]] = []
+        self._peaks: _np.ndarray = _np.array([], dtype=int)
+        self._valleys: _np.ndarray = _np.array([], dtype=int)
+        self._markers: list[float] = []
+        self._excluded_indices: set[int] = set()
+        self._mode_var = ctk.StringVar(value="auto")
+
+        # ── Trunk inclination figure (3-panel) ────────────────────────────
+        self._trunk_fig = plot_trunk_inclination(
+            trunk_angles, frame_rate, title=movement_name
+        )
+
+        # The lateral_inclination axes (middle subplot) is where we overlay
+        # segmentation markers.
+        self._lat_ax = self._trunk_fig.axes[1]
+
+        self._canvas = FigureCanvasTkAgg(self._trunk_fig, master=self)
+        self._canvas.get_tk_widget().pack(
+            fill="both", expand=True, padx=10, pady=(10, 0))
+
+        nav_frame = ctk.CTkFrame(self, height=30)
+        nav_frame.pack(fill="x", padx=10)
+        nav_frame.pack_propagate(False)
+        nav = NavigationToolbar2Tk(self._canvas, nav_frame)
+        nav.update()
+
+        self._cid = self._canvas.mpl_connect(
+            "button_press_event", self._on_canvas_click)
+
+        # ── Mode selector ─────────────────────────────────────────────────
+        mode_bar = ctk.CTkFrame(self)
+        mode_bar.pack(fill="x", padx=10, pady=(6, 0))
+        ctk.CTkLabel(
+            mode_bar, text=t("seg_mode_label"),
+            font=ctk.CTkFont(weight="bold"),
+        ).pack(side="left", padx=(8, 4))
+        for txt, val in [
+            (t("seg_mode_auto"),   "auto"),
+            (t("seg_mode_manual"), "manual"),
+            (t("seg_mode_events"), "events"),
+        ]:
+            ctk.CTkRadioButton(
+                mode_bar, text=txt, variable=self._mode_var, value=val,
+                command=self._switch_mode,
+            ).pack(side="left", padx=6)
+
+        # ── Mode panels ───────────────────────────────────────────────────
+        self._panel_container = ctk.CTkFrame(self, height=110)
+        self._panel_container.pack(fill="x", padx=10, pady=4)
+        self._panel_container.pack_propagate(False)
+
+        self._panel_auto   = self._build_auto_panel(self._panel_container)
+        self._panel_manual = self._build_manual_panel(self._panel_container)
+        self._panel_events = self._build_events_panel(self._panel_container)
+
+        # ── Stats label ───────────────────────────────────────────────────
+        stats_frame = ctk.CTkFrame(self)
+        stats_frame.pack(fill="x", padx=10, pady=(0, 4))
+        self._stats_lbl = ctk.CTkLabel(
+            stats_frame,
+            text=f"  {t('seg_no_segments')}",
+            font=ctk.CTkFont(size=11), justify="left",
+        )
+        self._stats_lbl.pack(anchor="w", padx=8, pady=4)
+
+        # ── Action buttons ────────────────────────────────────────────────
+        btn_bar = ctk.CTkFrame(self)
+        btn_bar.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkButton(
+            btn_bar, text=t("seg_accept"),
+            fg_color="#2D7A2D", hover_color="#1F5C1F",
+            font=ctk.CTkFont(weight="bold"), width=160,
+            command=self._accept,
+        ).pack(side="right", padx=4)
+        ctk.CTkButton(
+            btn_bar, text=t("seg_cancel"), width=120,
+            command=self.destroy,
+        ).pack(side="right")
+
+        self._switch_mode()
+
+    # ── Panel builders ─────────────────────────────────────────────────────
+
+    def _build_auto_panel(self, parent) -> ctk.CTkFrame:
+        from config import DEFAULT_MIN_PROMINENCE, DEFAULT_MIN_DISTANCE
+
+        pnl = ctk.CTkFrame(parent, fg_color="transparent")
+
+        self._prom_var = ctk.IntVar(value=DEFAULT_MIN_PROMINENCE)
+        self._dist_var = ctk.IntVar(value=DEFAULT_MIN_DISTANCE)
+        self._cycle_var = ctk.StringVar(value="halfcycle")
+
+        row1 = ctk.CTkFrame(pnl, fg_color="transparent")
+        row1.pack(anchor="w", padx=8, pady=4)
+        ctk.CTkLabel(row1, text=t("seg_prominence"), width=130, anchor="w").pack(side="left")
+        ctk.CTkSlider(row1, from_=1, to=60, variable=self._prom_var, width=180).pack(side="left", padx=4)
+        ctk.CTkLabel(row1, textvariable=self._prom_var, width=30).pack(side="left")
+
+        row2 = ctk.CTkFrame(pnl, fg_color="transparent")
+        row2.pack(anchor="w", padx=8, pady=4)
+        ctk.CTkLabel(row2, text=t("seg_min_distance"), width=130, anchor="w").pack(side="left")
+        ctk.CTkSlider(row2, from_=10, to=300, variable=self._dist_var, width=180).pack(side="left", padx=4)
+        ctk.CTkLabel(row2, textvariable=self._dist_var, width=36).pack(side="left")
+
+        row3 = ctk.CTkFrame(pnl, fg_color="transparent")
+        row3.pack(anchor="w", padx=8, pady=2)
+        ctk.CTkLabel(row3, text=t("seg_cycle_from"), width=130, anchor="w").pack(side="left")
+        for lbl, val in [
+            (t("seg_valley_valley"), "valley"),
+            (t("seg_peak_peak"),     "peak"),
+        ]:
+            ctk.CTkRadioButton(
+                row3, text=lbl, variable=self._cycle_var, value=val,
+            ).pack(side="left", padx=4)
+
+        ctk.CTkButton(pnl, text=t("seg_detect"), width=100,
+                      command=self._auto_detect).pack(anchor="w", padx=8, pady=4)
+        return pnl
+
+    def _build_manual_panel(self, parent) -> ctk.CTkFrame:
+        pnl = ctk.CTkFrame(parent, fg_color="transparent")
+        ctk.CTkLabel(
+            pnl, text=t("seg_manual_hint"),
+            font=ctk.CTkFont(size=10), text_color="gray",
+        ).pack(anchor="w", padx=8, pady=4)
+        row = ctk.CTkFrame(pnl, fg_color="transparent")
+        row.pack(anchor="w", padx=8)
+        ctk.CTkButton(row, text=t("seg_undo"), width=80,
+                      command=self._manual_undo).pack(side="left", padx=4)
+        ctk.CTkButton(row, text=t("seg_clear"), width=80,
+                      command=self._manual_clear).pack(side="left", padx=4)
+        self._manual_lbl = ctk.CTkLabel(
+            pnl, text=f"  {t('seg_initial_markers')}",
+            font=ctk.CTkFont(size=10),
+        )
+        self._manual_lbl.pack(anchor="w", padx=8, pady=2)
+        return pnl
+
+    def _build_events_panel(self, parent) -> ctk.CTkFrame:
+        pnl = ctk.CTkFrame(parent, fg_color="transparent")
+        event_names = [e["name"] for e in self._events]
+
+        if not event_names:
+            ctk.CTkLabel(pnl, text=t("seg_no_events"),
+                         font=ctk.CTkFont(size=10), text_color="gray").pack(
+                anchor="w", padx=8, pady=8)
+            return pnl
+
+        self._ev_start_var = ctk.StringVar(value=event_names[0])
+        self._ev_end_var   = ctk.StringVar(
+            value=event_names[1] if len(event_names) > 1 else event_names[0])
+
+        row = ctk.CTkFrame(pnl, fg_color="transparent")
+        row.pack(anchor="w", padx=8, pady=6)
+        ctk.CTkLabel(row, text=t("seg_start_event"), width=100, anchor="w").pack(side="left")
+        ctk.CTkOptionMenu(row, values=event_names,
+                          variable=self._ev_start_var, width=150).pack(side="left", padx=4)
+        ctk.CTkLabel(row, text=t("seg_end_event"), width=90, anchor="w").pack(side="left")
+        ctk.CTkOptionMenu(row, values=event_names,
+                          variable=self._ev_end_var, width=150).pack(side="left", padx=4)
+        ctk.CTkButton(pnl, text=t("seg_map_events"), width=110,
+                      command=self._map_events).pack(anchor="w", padx=8, pady=4)
+        return pnl
+
+    # ── Mode switching ─────────────────────────────────────────────────────
+
+    def _switch_mode(self) -> None:
+        mode = self._mode_var.get()
+        for pnl in (self._panel_auto, self._panel_manual, self._panel_events):
+            pnl.pack_forget()
+        if mode == "auto":
+            self._panel_auto.pack(fill="x")
+        elif mode == "manual":
+            self._panel_manual.pack(fill="x")
+        else:
+            self._panel_events.pack(fill="x")
+        self._redraw()
+
+    # ── Auto detection ─────────────────────────────────────────────────────
+
+    def _auto_detect(self) -> None:
+        from segmentation import auto_segment, compute_rep_roms
+        try:
+            segs, peaks, valleys = auto_segment(
+                self._angle_data,
+                min_prominence=float(self._prom_var.get()),
+                min_distance=int(self._dist_var.get()),
+                cycle_from=self._cycle_var.get(),
+            )
+        except Exception as exc:
+            messagebox.showwarning(t("seg_detect_error"), str(exc), parent=self)
+            return
+        self._segments = segs
+        self._peaks    = peaks
+        self._valleys  = valleys
+        self._excluded_indices.clear()
+        self._redraw()
+        self._update_stats_label()
+
+    # ── Manual mode ───────────────────────────────────────────────────────
+
+    def _on_canvas_click(self, event) -> None:
+        if self._mode_var.get() != "manual":
+            return
+        if event.inaxes is None:
+            return
+
+        # Identify if click is on the lateral_inclination subplot
+        if event.inaxes not in self._trunk_fig.axes:
+            return
+
+        x_frame = event.xdata * self._frame_rate  # convert time → frames
+
+        if event.button == 1:
+            self._markers.append(x_frame)
+        elif event.button == 3 and self._markers:
+            nearest = min(range(len(self._markers)),
+                          key=lambda i: abs(self._markers[i] - x_frame))
+            self._markers.pop(nearest)
+
+        pairs = len(self._markers) // 2
+        self._segments = [
+            (int(self._markers[2 * i]), int(self._markers[2 * i + 1]))
+            for i in range(pairs)
+        ]
+        self._manual_lbl.configure(
+            text=t("seg_markers_placed").format(
+                n=len(self._markers), pairs=pairs))
+        self._redraw()
+        self._update_stats_label()
+
+    def _manual_undo(self) -> None:
+        if self._markers:
+            self._markers.pop()
+            pairs = len(self._markers) // 2
+            self._segments = [
+                (int(self._markers[2 * i]), int(self._markers[2 * i + 1]))
+                for i in range(pairs)
+            ]
+            self._redraw()
+            self._update_stats_label()
+
+    def _manual_clear(self) -> None:
+        self._markers.clear()
+        self._segments.clear()
+        self._manual_lbl.configure(text=f"  {t('seg_initial_markers')}")
+        self._redraw()
+        self._update_stats_label()
+
+    # ── Events mode ───────────────────────────────────────────────────────
+
+    def _map_events(self) -> None:
+        if not self._events:
+            return
+        start_name = self._ev_start_var.get()
+        end_name   = self._ev_end_var.get()
+        starts = [e["frame"] for e in self._events if e["name"] == start_name]
+        ends   = [e["frame"] for e in self._events if e["name"] == end_name]
+        pairs  = [(s, e) for s in starts for e in ends if e > s]
+        if not pairs:
+            messagebox.showwarning(
+                t("seg_no_pairs_title"),
+                t("seg_no_pairs_msg").format(start=start_name, end=end_name),
+                parent=self,
+            )
+            return
+        # Keep only non-overlapping pairs
+        segs: list[tuple[int, int]] = []
+        last_end = -1
+        for s, e in sorted(pairs):
+            if s > last_end:
+                segs.append((s, e))
+                last_end = e
+        self._segments = segs
+        self._excluded_indices.clear()
+        self._redraw()
+        self._update_stats_label()
+
+    # ── Drawing ────────────────────────────────────────────────────────────
+
+    def _redraw(self) -> None:
+        import numpy as _np
+        from segmentation import compute_rep_roms
+
+        # Clear only segmentation overlays from the lateral inclination subplot
+        lat_ax = self._lat_ax
+        for artist in list(lat_ax.collections) + list(lat_ax.lines[1:]):
+            try:
+                artist.remove()
+            except Exception:
+                pass
+
+        scale = 1.0 / self._frame_rate
+        lat_data = self._angle_data
+
+        # Draw segments as shaded bands
+        _REP_COLORS = [
+            "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4",
+            "#FFEAA7", "#DDA0DD", "#98D8C8",
+        ]
+        roms = compute_rep_roms(lat_data, self._segments) if self._segments else []
+        for i, (s, e) in enumerate(self._segments):
+            color = _REP_COLORS[i % len(_REP_COLORS)]
+            xs, xe = s * scale, e * scale
+            alpha = 0.10 if i in self._excluded_indices else 0.22
+            lat_ax.axvspan(xs, xe, alpha=alpha, color=color, zorder=1)
+            label = f"R{i + 1}"
+            if roms and i < len(roms) and not _np.isnan(roms[i]):
+                label += f"\n{roms[i]:.1f}°"
+            lat_ax.text(
+                (xs + xe) / 2, 0.97, label,
+                fontsize=7, ha="center", va="top",
+                transform=lat_ax.get_xaxis_transform(),
+                color=color,
+            )
+
+        # Manual markers as vertical lines
+        if self._mode_var.get() == "manual":
+            for j, m in enumerate(self._markers):
+                color = "#2D7A2D" if j % 2 == 0 else "#E05252"
+                lat_ax.axvline(m * scale, color=color, linewidth=1.2,
+                               linestyle="--", zorder=3)
+
+        # Auto peaks/valleys
+        if self._mode_var.get() == "auto" and len(self._peaks):
+            n = len(lat_data)
+            x_all = _np.arange(n) * scale
+            lat_ax.plot(
+                self._peaks * scale,
+                lat_data[_np.clip(self._peaks, 0, n - 1)],
+                "v", color="#E05252", ms=5, zorder=5,
+            )
+            lat_ax.plot(
+                self._valleys * scale,
+                lat_data[_np.clip(self._valleys, 0, n - 1)],
+                "^", color="#2D7A2D", ms=5, zorder=5,
+            )
+
+        self._canvas.draw_idle()
+
+    def _update_stats_label(self) -> None:
+        from segmentation import compute_rep_roms, compute_stats_from_roms
+        active = [s for i, s in enumerate(self._segments)
+                  if i not in self._excluded_indices]
+        if not active:
+            self._stats_lbl.configure(text=f"  {t('seg_no_segments')}")
+            return
+        roms  = compute_rep_roms(self._angle_data, active)
+        stats = compute_stats_from_roms(roms, active)
+        txt = (
+            f"  {t('seg_n_segments').format(n=len(active))}   "
+            f"Mean ROM: {stats['mean']:.1f}°   SD: {stats['sd']:.1f}°"
+        )
+        self._stats_lbl.configure(text=txt)
+
+    # ── Accept / Cancel ────────────────────────────────────────────────────
+
+    def _accept(self) -> None:
+        active_segs = [s for i, s in enumerate(self._segments)
+                       if i not in self._excluded_indices]
+        if not active_segs:
+            messagebox.showwarning(
+                t("seg_accept_warn_title"),
+                t("seg_accept_warn_msg"),
+                parent=self,
+            )
+            return
+        from segmentation import compute_rep_roms, compute_stats_from_roms
+        roms  = compute_rep_roms(self._angle_data, active_segs)
+        stats = compute_stats_from_roms(roms, active_segs)
+        self.result = stats
+        self.destroy()

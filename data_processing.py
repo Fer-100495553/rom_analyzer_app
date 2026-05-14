@@ -370,6 +370,8 @@ def list_available_angles(c3d_data: dict) -> list[str]:
     Return only SULM model output labels, filtering out raw marker trajectories.
 
     Uses keyword matching against :data:`config.ANGLE_KEYWORDS`.
+    Also appends 'Trunk Lateral Inclination' when the three required markers
+    (IJ, LeftLumbar, RightLumbar) are present in the C3D model outputs.
 
     Args:
         c3d_data: Output of :func:`read_c3d`.
@@ -378,10 +380,182 @@ def list_available_angles(c3d_data: dict) -> list[str]:
         Filtered list of label strings.
     """
     from config import ANGLE_KEYWORDS
-    return [
+    result = [
         lbl for lbl in c3d_data["point_labels"]
         if any(kw in lbl for kw in ANGLE_KEYWORDS)
     ]
+
+    model_outputs = c3d_data["model_outputs"]
+    stripped = {lbl.split(":")[-1].strip() for lbl in model_outputs}
+    _TRUNK_MARKERS = {"IJ", "LeftLumbar", "RightLumbar"}
+    if _TRUNK_MARKERS.issubset(stripped):
+        result.append("Trunk Lateral Inclination")
+
+    return result
+
+
+# ── Trunk Extended (marker-based) ─────────────────────────────────────────
+
+def _get_marker_trajectory(c3d_data: dict, label: str) -> np.ndarray:
+    """
+    Return the (3, n_frames) trajectory for *label* from model_outputs.
+
+    Subject prefix before ':' is stripped before matching.
+
+    Raises:
+        KeyError: If *label* is not found after prefix stripping.
+    """
+    model_outputs = c3d_data["model_outputs"]
+    for key, arr in model_outputs.items():
+        clean = key.split(":")[-1].strip()
+        if clean == label:
+            return arr.astype(float)
+    available = [k.split(":")[-1].strip() for k in model_outputs]
+    raise KeyError(
+        f"Marker '{label}' not found in C3D model outputs. "
+        f"Available labels: {available}"
+    )
+
+
+def compute_trunk_extended_angles(
+    c3d_data: dict,
+    reference_frame_idx: int = None,
+) -> dict:
+    """
+    Compute trunk lateral inclination (and secondary angles) from raw markers.
+
+    Uses IJ (sternal notch), LeftLumbar, and RightLumbar to build a trunk
+    coordinate frame per frame, then decomposes relative rotation into
+    ZXY Euler angles (ISB convention, Wu et al. 2005).
+
+    If a label containing 'Trunk_Extended' already exists in model_outputs,
+    reads lateral_inclination directly from component index 1 of that variable.
+
+    Args:
+        c3d_data:            Output of :func:`read_c3d`.
+        reference_frame_idx: Frame to use as the neutral reference.
+                             Defaults to the first valid frame.
+
+    Returns:
+        Dict with keys:
+            flexion_extension   (n_frames,) float array, degrees
+            lateral_inclination (n_frames,) float array, degrees — PRIMARY
+            axial_rotation      (n_frames,) float array, degrees
+            valid_frames        (n_frames,) bool array
+    """
+    from scipy.spatial.transform import Rotation as _Rotation
+
+    n_frames = c3d_data["n_frames"]
+
+    # ── Fast path: pre-computed Nexus variable ────────────────────────────
+    model_outputs = c3d_data["model_outputs"]
+    for key, arr in model_outputs.items():
+        clean = key.split(":")[-1].strip()
+        if "Trunk_Extended" in clean:
+            lat = arr[1, :].astype(float)
+            fe  = arr[0, :].astype(float)
+            ar  = arr[2, :].astype(float)
+            valid = ~(np.isnan(lat) | np.isnan(fe) | np.isnan(ar))
+            return {
+                "flexion_extension":   fe,
+                "lateral_inclination": lat,
+                "axial_rotation":      ar,
+                "valid_frames":        valid,
+            }
+
+    # ── Marker-based computation ──────────────────────────────────────────
+    IJ          = _get_marker_trajectory(c3d_data, "IJ")           # (3, n)
+    LeftLumbar  = _get_marker_trajectory(c3d_data, "LeftLumbar")   # (3, n)
+    RightLumbar = _get_marker_trajectory(c3d_data, "RightLumbar")  # (3, n)
+
+    def _is_invalid_frame(idx: int) -> bool:
+        for arr in (IJ, LeftLumbar, RightLumbar):
+            col = arr[:, idx]
+            if np.all(col == 0.0) or np.any(np.isnan(col)):
+                return True
+        return False
+
+    valid_frames = np.array(
+        [not _is_invalid_frame(i) for i in range(n_frames)], dtype=bool
+    )
+
+    n_valid = int(valid_frames.sum())
+    if n_valid < 10:
+        raise ValueError(
+            f"Only {n_valid} valid frame(s) found for trunk marker computation "
+            f"(minimum required: 10). Check that IJ, LeftLumbar, and RightLumbar "
+            f"markers are properly captured."
+        )
+
+    # ── Build rotation matrix per frame ───────────────────────────────────
+    def _safe_normalize(v: np.ndarray) -> np.ndarray | None:
+        norm = np.linalg.norm(v)
+        if norm < 1e-10:
+            return None
+        return v / norm
+
+    R_frames: list[np.ndarray | None] = [None] * n_frames
+
+    for i in range(n_frames):
+        if not valid_frames[i]:
+            continue
+        ij  = IJ[:, i]
+        ll  = LeftLumbar[:, i]
+        rl  = RightLumbar[:, i]
+        mid = 0.5 * (ll + rl)
+
+        z_axis = _safe_normalize(ij - mid)
+        if z_axis is None:
+            valid_frames[i] = False
+            continue
+
+        x_raw  = _safe_normalize(rl - mid)
+        if x_raw is None:
+            valid_frames[i] = False
+            continue
+
+        y_axis = _safe_normalize(np.cross(z_axis, x_raw))
+        if y_axis is None:
+            valid_frames[i] = False
+            continue
+
+        x_axis = _safe_normalize(np.cross(y_axis, z_axis))
+        if x_axis is None:
+            valid_frames[i] = False
+            continue
+
+        R_frames[i] = np.column_stack([x_axis, y_axis, z_axis])
+
+    # ── Reference frame ───────────────────────────────────────────────────
+    valid_indices = np.where(valid_frames)[0]
+    if reference_frame_idx is None or reference_frame_idx not in valid_indices:
+        ref_idx = int(valid_indices[0])
+    else:
+        ref_idx = reference_frame_idx
+
+    R_ref = R_frames[ref_idx]
+
+    # ── Relative rotation → Euler ZXY ─────────────────────────────────────
+    fe  = np.full(n_frames, np.nan)
+    lat = np.full(n_frames, np.nan)
+    ar  = np.full(n_frames, np.nan)
+
+    for i in range(n_frames):
+        R_i = R_frames[i]
+        if R_i is None:
+            continue
+        R_rel = R_ref.T @ R_i
+        angles_rad = _Rotation.from_matrix(R_rel).as_euler("ZXY")
+        fe[i]  = np.degrees(angles_rad[0])   # Z — flexion/extension
+        lat[i] = np.degrees(angles_rad[1])   # X — lateral inclination (PRIMARY)
+        ar[i]  = np.degrees(angles_rad[2])   # Y — axial rotation
+
+    return {
+        "flexion_extension":   fe,
+        "lateral_inclination": lat,
+        "axial_rotation":      ar,
+        "valid_frames":        valid_frames,
+    }
 
 
 def detect_events(c3d_data: dict) -> list[dict]:

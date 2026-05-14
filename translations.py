@@ -384,6 +384,27 @@ _STRINGS: dict[str, dict[str, str]] = {
     "dist_units_mm":     {"en": "mm",               "es": "mm"},
     "dist_units_none":   {"en": "—",                "es": "—"},
     "dist_y_axis":       {"en": "Distance (mm)",    "es": "Distancia (mm)"},
+    # ── Trunk Extended ────────────────────────────────────────────────────────
+    "movement_trunk_lateral_inclination": {
+        "en": "Trunk Lateral Inclination",
+        "es": "Inclinación Lateral del Tronco",
+    },
+    "plot_flexion_extension": {
+        "en": "Flexion / Extension",
+        "es": "Flexión / Extensión",
+    },
+    "plot_lateral_inclination": {
+        "en": "Lateral Inclination (primary)",
+        "es": "Inclinación Lateral (principal)",
+    },
+    "plot_axial_rotation": {
+        "en": "Axial Rotation",
+        "es": "Rotación Axial",
+    },
+    "err_trunk_markers_missing": {
+        "en": "Trunk markers not found in C3D: {missing}",
+        "es": "Marcadores de tronco no encontrados en el C3D: {missing}",
+    },
 }
 
 
