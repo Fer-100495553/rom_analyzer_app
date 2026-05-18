@@ -1288,7 +1288,6 @@ class App(ctk.CTk):
         var_raw      = ctk.BooleanVar(value=True)
         var_distance = ctk.BooleanVar(value=False)
         var_t8       = ctk.BooleanVar(value=True)
-        var_c7       = ctk.BooleanVar(value=True)
 
         ctk.CTkCheckBox(
             win, text=t("s4_xlsx_sheet_summary"), variable=var_summary,
@@ -1300,23 +1299,19 @@ class App(ctk.CTk):
             win, text=t("s4_xlsx_sheet_raw_data"), variable=var_raw,
         ).pack(anchor="w", padx=32, pady=4)
 
-        # Distance comparison with sub-options
+        # Distance comparison with T8 sub-option
         t8_cb = ctk.CTkCheckBox(win, text=t("dist_T8"), variable=var_t8,
-                                 state="disabled")
-        c7_cb = ctk.CTkCheckBox(win, text=t("dist_C7"), variable=var_c7,
                                  state="disabled")
 
         def _toggle_distance_sub():
             state = "normal" if var_distance.get() else "disabled"
             t8_cb.configure(state=state)
-            c7_cb.configure(state=state)
 
         ctk.CTkCheckBox(
             win, text=t("export_distance_comparison"), variable=var_distance,
             command=_toggle_distance_sub,
         ).pack(anchor="w", padx=32, pady=4)
         t8_cb.pack(anchor="w", padx=52, pady=2)
-        c7_cb.pack(anchor="w", padx=52, pady=2)
 
         def _do_export():
             selected = []
@@ -1331,8 +1326,6 @@ class App(ctk.CTk):
             if var_distance.get():
                 if var_t8.get():
                     distance_markers.append(("T8", "Diff_T8F_T8V"))
-                if var_c7.get():
-                    distance_markers.append(("C7", "Diff_C7F_C7_rec"))
 
             if not selected and not distance_markers:
                 messagebox.showwarning(
@@ -1651,97 +1644,70 @@ class App(ctk.CTk):
         markers: list[tuple[str, str]],
     ) -> None:
         import math as _math
+        import numpy as _np
+        import ezc3d as _ezc3d
         from openpyxl.styles import Font
-        from openpyxl.chart import LineChart, Reference, Series
-        from validation_metrics import (
-            extract_diff_vector,
-            compute_euclidean_distance,
-            compute_validation_metrics,
-            compute_per_axis_mae,
-        )
 
         bold = Font(bold=True)
-        block_start_row = 1
 
-        for block_idx, (marker_name, label_str) in enumerate(markers):
+        for _marker_name, label_str in markers:
             try:
-                diff, frame_rate = extract_diff_vector(c3d_path, label_str)
+                c = _ezc3d.c3d(c3d_path)
+                raw_labels = c["parameters"]["POINT"]["LABELS"]["value"]
+                clean_labels = [
+                    lbl.split(":")[-1] if ":" in lbl else lbl
+                    for lbl in raw_labels
+                ]
+                if label_str not in clean_labels:
+                    logger.warning(
+                        "Distance comparison: label '%s' not found. Available: %s",
+                        label_str, clean_labels,
+                    )
+                    continue
+
+                idx = clean_labels.index(label_str)
+                try:
+                    rate_val   = c["parameters"]["POINT"]["RATE"]["value"]
+                    frame_rate = float(rate_val[0] if hasattr(rate_val, "__len__") else rate_val)
+                except (KeyError, IndexError, TypeError, ValueError):
+                    frame_rate = float(c["header"]["frame_rate"])
+                xyz      = c["data"]["points"][:3, idx, :].astype(float)  # (3, n_frames)
+                residual   = c["data"]["points"][3, idx, :]
+                valid_mask = residual >= 0
+                n_valid    = int(_np.sum(valid_mask))
+                n_frames   = xyz.shape[1]
+
+                distance = _np.linalg.norm(xyz, axis=0)          # (n_frames,)
+                distance[~valid_mask] = _np.nan
+
+                first3 = [
+                    round(float(distance[i]), 3)
+                    for i in range(min(3, n_frames))
+                    if not _np.isnan(distance[i])
+                ]
+                logger.info(
+                    "Distance comparison '%s': %d valid frames, first 3 distances = %s",
+                    label_str, n_valid, first3,
+                )
+
+                # Row 1: headers
+                ws.cell(row=1, column=1, value="Frame").font = bold
+                ws.cell(row=1, column=2, value="Time (s)").font = bold
+                ws.cell(row=1, column=3, value="Euclidean Distance (mm)").font = bold
+
+                # Rows 2..n_frames+1: data, frame index 0..N-1
+                for i in range(n_frames):
+                    row = 2 + i
+                    d = float(distance[i])
+                    ws.cell(row=row, column=1, value=i)
+                    ws.cell(row=row, column=2, value=round(i / frame_rate, 2))
+                    ws.cell(row=row, column=3,
+                            value=None if _math.isnan(d) else round(d, 3))
+
             except Exception as exc:
                 logger.warning(
                     "Distance comparison: skipping '%s' — %s", label_str, exc
                 )
-                continue
-
-            distance = compute_euclidean_distance(diff)
-            metrics  = compute_validation_metrics(distance)
-            per_axis = compute_per_axis_mae(diff)
-            n_frames = len(distance)
-
-            # Write time and distance data in dedicated columns (G+, H+ …)
-            # Each block uses a different pair of columns so they never overlap.
-            time_col = 7 + block_idx * 2   # col G for block 0, col I for block 1
-            dist_col = time_col + 1
-            for i in range(n_frames):
-                t_val = round(i / frame_rate, 4)
-                d_val = float(distance[i])
-                ws.cell(row=1 + i, column=time_col, value=t_val)
-                ws.cell(
-                    row=1 + i, column=dist_col,
-                    value=None if _math.isnan(d_val) else round(d_val, 4),
-                )
-
-            # Title row
-            ws.cell(row=block_start_row, column=1,
-                    value=f"{marker_name} — {label_str}").font = bold
-
-            # Header row
-            hdr_row = block_start_row + 1
-            ws.cell(row=hdr_row, column=1, value=t("dist_col_metric")).font = bold
-            ws.cell(row=hdr_row, column=2, value=t("dist_col_value")).font  = bold
-            ws.cell(row=hdr_row, column=3, value=t("dist_col_units")).font  = bold
-
-            # Data rows
-            data_row  = hdr_row + 1
-            row_specs = [
-                (t("dist_mean"),         round(metrics["mean_mm"],     3), t("dist_units_mm")),
-                (t("dist_sd"),           round(metrics["sd_mm"],       3), t("dist_units_mm")),
-                (t("dist_rmse"),         round(metrics["rmse_mm"],     3), t("dist_units_mm")),
-                (t("dist_max"),          round(metrics["max_mm"],      3), t("dist_units_mm")),
-                (t("dist_p95"),          round(metrics["p95_mm"],      3), t("dist_units_mm")),
-                (t("dist_mae_x"),        round(per_axis["mae_x_mm"],   3), t("dist_units_mm")),
-                (t("dist_mae_y"),        round(per_axis["mae_y_mm"],   3), t("dist_units_mm")),
-                (t("dist_mae_z"),        round(per_axis["mae_z_mm"],   3), t("dist_units_mm")),
-                (t("dist_valid_frames"),
-                 f"{metrics['n_valid']} / {metrics['n_frames']}",
-                 t("dist_units_none")),
-            ]
-            for metric_label, value, units in row_specs:
-                ws.cell(row=data_row, column=1, value=metric_label)
-                ws.cell(row=data_row, column=2, value=value)
-                ws.cell(row=data_row, column=3, value=units)
-                data_row += 1
-
-            metrics_end_row = data_row - 1
-
-            # LineChart anchored 2 rows below metrics table, column E
-            chart = LineChart()
-            chart.title        = marker_name
-            chart.y_axis.title = t("dist_y_axis")
-            chart.x_axis.title = t("col_time_s")
-            chart.width  = 15
-            chart.height = 10
-
-            x_ref = Reference(ws, min_col=time_col, max_col=time_col,
-                               min_row=1, max_row=n_frames)
-            y_ref = Reference(ws, min_col=dist_col, max_col=dist_col,
-                               min_row=1, max_row=n_frames)
-            s = Series(y_ref, title=marker_name)
-            chart.append(s)
-            chart.set_categories(x_ref)
-            ws.add_chart(chart, f"E{metrics_end_row + 2}")
-
-            # Next block: 2 empty rows after current metrics table
-            block_start_row = metrics_end_row + 3
 
     def _export_chart(self, fig, name: str = "chart") -> None:
         path = filedialog.asksaveasfilename(

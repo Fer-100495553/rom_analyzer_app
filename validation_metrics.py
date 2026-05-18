@@ -13,7 +13,7 @@ def extract_diff_vector(c3d_path: str, label: str) -> tuple[np.ndarray, float]:
 
     Points shape: (4, n_labels, n_frames) — rows 0=X, 1=Y, 2=Z, 3=residual.
     Subject prefix (e.g. 'Subject01:Diff_T8F_T8V') is stripped before matching.
-    Frames where all three components are zero or residual == 0 are set to NaN.
+    Frames where all three components are zero or residual < 0 are set to NaN.
 
     Returns:
         diff: np.ndarray shape (3, n_frames), dx dy dz in mm, invalid frames as NaN
@@ -37,7 +37,11 @@ def extract_diff_vector(c3d_path: str, label: str) -> tuple[np.ndarray, float]:
         )
 
     idx = clean_labels.index(label)
-    frame_rate = float(c3d["header"]["frame_rate"])
+    try:
+        rate_val   = c3d["parameters"]["POINT"]["RATE"]["value"]
+        frame_rate = float(rate_val[0] if hasattr(rate_val, "__len__") else rate_val)
+    except (KeyError, IndexError, TypeError, ValueError):
+        frame_rate = float(c3d["header"]["frame_rate"])
 
     x = points[0, idx, :].astype(float)
     y = points[1, idx, :].astype(float)
@@ -47,7 +51,7 @@ def extract_diff_vector(c3d_path: str, label: str) -> tuple[np.ndarray, float]:
     diff = np.stack([x, y, z], axis=0)  # (3, n_frames)
 
     all_zero = (x == 0) & (y == 0) & (z == 0)
-    invalid = all_zero | (residual == 0)
+    invalid = all_zero | (residual < 0)
     diff[:, invalid] = np.nan
 
     return diff, frame_rate
