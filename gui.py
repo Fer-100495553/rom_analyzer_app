@@ -1287,7 +1287,6 @@ class App(ctk.CTk):
         var_rep      = ctk.BooleanVar(value=True)
         var_raw      = ctk.BooleanVar(value=True)
         var_distance = ctk.BooleanVar(value=False)
-        var_t8       = ctk.BooleanVar(value=True)
 
         ctk.CTkCheckBox(
             win, text=t("s4_xlsx_sheet_summary"), variable=var_summary,
@@ -1295,23 +1294,24 @@ class App(ctk.CTk):
         ctk.CTkCheckBox(
             win, text=t("s4_xlsx_sheet_rep_detail"), variable=var_rep,
         ).pack(anchor="w", padx=32, pady=4)
-        ctk.CTkCheckBox(
+        raw_cb = ctk.CTkCheckBox(
             win, text=t("s4_xlsx_sheet_raw_data"), variable=var_raw,
-        ).pack(anchor="w", padx=32, pady=4)
+        )
+        raw_cb.pack(anchor="w", padx=32, pady=4)
 
-        # Distance comparison with T8 sub-option
-        t8_cb = ctk.CTkCheckBox(win, text=t("dist_T8"), variable=var_t8,
-                                 state="disabled")
-
-        def _toggle_distance_sub():
-            state = "normal" if var_distance.get() else "disabled"
-            t8_cb.configure(state=state)
-
-        ctk.CTkCheckBox(
+        dist_cb = ctk.CTkCheckBox(
             win, text=t("export_distance_comparison"), variable=var_distance,
-            command=_toggle_distance_sub,
-        ).pack(anchor="w", padx=32, pady=4)
-        t8_cb.pack(anchor="w", padx=52, pady=2)
+            state="normal",
+        )
+        dist_cb.pack(anchor="w", padx=52, pady=2)
+
+        def _toggle_raw():
+            state = "normal" if var_raw.get() else "disabled"
+            dist_cb.configure(state=state)
+            if not var_raw.get():
+                var_distance.set(False)
+
+        raw_cb.configure(command=_toggle_raw)
 
         def _do_export():
             selected = []
@@ -1322,10 +1322,7 @@ class App(ctk.CTk):
             if var_raw.get():
                 selected.append("raw_data")
 
-            distance_markers: list[tuple[str, str]] = []
-            if var_distance.get():
-                if var_t8.get():
-                    distance_markers.append(("T8", "Diff_T8F_T8V"))
+            distance_markers = [("T8", "Diff_T8F_T8V")] if var_distance.get() else []
 
             if not selected and not distance_markers:
                 messagebox.showwarning(
@@ -1367,6 +1364,12 @@ class App(ctk.CTk):
         for (mv_name, side), data in self._processed.items():
             groups.setdefault(mv_name, []).append((side, data))
 
+        c3d_path = next(
+            (d.get("c3d_path", "") for d in self._processed.values()
+             if d.get("c3d_path")),
+            "",
+        )
+
         if "summary" in sheets:
             ws = wb.create_sheet(t("s4_xlsx_sheet_summary"))
             self._xl_write_summary(ws, groups)
@@ -1377,16 +1380,7 @@ class App(ctk.CTk):
 
         if "raw_data" in sheets:
             ws = wb.create_sheet(t("s4_xlsx_sheet_raw_data"))
-            self._xl_write_raw_data(ws, groups)
-
-        if distance_markers:
-            c3d_path = next(
-                (d.get("c3d_path", "") for d in self._processed.values()
-                 if d.get("c3d_path")),
-                "",
-            )
-            ws = wb.create_sheet(t("sheet_distance_comparison"))
-            self._xl_write_distance_comparison(ws, c3d_path, distance_markers)
+            self._xl_write_raw_data(ws, groups, distance_markers, c3d_path)
 
         wb.save(path)
         messagebox.showinfo(
@@ -1416,6 +1410,8 @@ class App(ctk.CTk):
         ]
         row = 2
         for mv_name, sides_data in groups.items():
+            is_bilateral = len({d.get("c3d_path", "") for _, d in sides_data}) == 1
+            mv_label = mv_name + (" (Bilateral)" if is_bilateral else " (Unilateral)")
             mv_start = row
             for side, data in sides_data:
                 extended = data.get("extended", {})
@@ -1426,7 +1422,7 @@ class App(ctk.CTk):
                     sd_v   = stats.get("sd",   0.0)
                     min_v  = stats.get("min",  float("nan"))
                     max_v  = stats.get("max",  float("nan"))
-                    ws.cell(row=row, column=1, value=mv_name)
+                    ws.cell(row=row, column=1, value=mv_label)
                     ws.cell(row=row, column=2, value=side)
                     ws.cell(row=row, column=3, value=metric_label)
                     ws.cell(row=row, column=4, value=len(values))
@@ -1462,7 +1458,9 @@ class App(ctk.CTk):
         row = 1
 
         for mv_name, sides_data in groups.items():
-            ws.cell(row=row, column=1, value=mv_name).font = bold
+            is_bilateral = len({d.get("c3d_path", "") for _, d in sides_data}) == 1
+            mv_label = mv_name + (" (Bilateral)" if is_bilateral else " (Unilateral)")
+            ws.cell(row=row, column=1, value=mv_label).font = bold
             row += 1
 
             all_reps: dict = {}
@@ -1553,7 +1551,13 @@ class App(ctk.CTk):
                 row += 1
             row += 1
 
-    def _xl_write_raw_data(self, ws, groups: dict) -> None:
+    def _xl_write_raw_data(
+        self,
+        ws,
+        groups: dict,
+        distance_markers: list | None = None,
+        c3d_path: str = "",
+    ) -> None:
         import math as _math
         import numpy as _np
         from openpyxl.styles import Font
@@ -1561,10 +1565,36 @@ class App(ctk.CTk):
         from openpyxl.utils import get_column_letter
 
         bold = Font(bold=True)
-        TITLE_ROW    = 1
-        HEADER_ROW   = 2
-        DATA_START   = 3
-        current_col  = 1  # 1-based starting column of current movement block
+        TITLE_ROW   = 1
+        HEADER_ROW  = 2
+        DATA_START  = 3
+        current_col = 1
+
+        label_str   = distance_markers[0][1] if distance_markers else None
+        _dist_cache: dict = {}
+
+        def _load_dist(path: str) -> "_np.ndarray | None":
+            if path in _dist_cache:
+                return _dist_cache[path]
+            try:
+                import ezc3d as _ezc3d
+                c          = _ezc3d.c3d(path)
+                raw_labels = c["parameters"]["POINT"]["LABELS"]["value"]
+                clean      = [l.split(":")[-1] if ":" in l else l for l in raw_labels]
+                if label_str not in clean:
+                    _dist_cache[path] = None
+                    return None
+                idx   = clean.index(label_str)
+                xyz   = c["data"]["points"][:3, idx, :].astype(float)
+                valid = c["data"]["points"][3, idx, :] >= 0
+                dist  = _np.linalg.norm(xyz, axis=0)
+                dist[~valid] = _np.nan
+                _dist_cache[path] = dist
+                logger.info("T8 dist loaded: %d valid frames", int(_np.sum(valid)))
+            except Exception as exc:
+                logger.warning("Could not load T8 dist from %s: %s", path, exc)
+                _dist_cache[path] = None
+            return _dist_cache[path]
 
         for mv_name, sides_data in groups.items():
             side_arrays: dict = {}
@@ -1579,20 +1609,47 @@ class App(ctk.CTk):
                     side_arrays[side] = arr
                     max_len = max(max_len, len(arr))
 
-            n_sides     = len(sides_data)
-            block_width = 2 + n_sides  # Frame | Time (s) | side_0 (°) | …
+            n_sides      = len(sides_data)
+            is_bilateral = len({d.get("c3d_path", "") for _, d in sides_data}) == 1
+            label_suffix = " (Bilateral)" if is_bilateral else " (Unilateral)"
+
+            # Build dist column specs: [(header, per-frame slice or None), ...]
+            dist_cols: list = []
+            if label_str and max_len > 0:
+                if is_bilateral:
+                    cp   = sides_data[0][1].get("c3d_path", "")
+                    off  = int(sides_data[0][1].get("offset", 0))
+                    full = _load_dist(cp) if cp else None
+                    slc  = (full[off: off + max_len]
+                            if full is not None and off + max_len <= len(full)
+                            else None)
+                    dist_cols = [("Dist T8 (mm)", slc)]
+                else:
+                    for side, data in sides_data:
+                        cp   = data.get("c3d_path", "")
+                        off  = int(data.get("offset") or 0)
+                        n    = len(side_arrays.get(side, []))
+                        full = _load_dist(cp) if cp else None
+                        slc  = (full[off: off + n]
+                                if full is not None and n > 0 and off + n <= len(full)
+                                else None)
+                        dist_cols.append((f"Dist T8 {side} (mm)", slc))
+
+            block_width = 2 + n_sides + len(dist_cols)
 
             # Title row
-            ws.cell(row=TITLE_ROW, column=current_col, value=mv_name).font = bold
+            ws.cell(row=TITLE_ROW, column=current_col,
+                    value=mv_name + label_suffix).font = bold
 
             # Header row
-            ws.cell(row=HEADER_ROW, column=current_col,
-                    value="Frame").font = bold
-            ws.cell(row=HEADER_ROW, column=current_col + 1,
-                    value=t("col_time_s")).font = bold
+            ws.cell(row=HEADER_ROW, column=current_col,     value="Frame").font = bold
+            ws.cell(row=HEADER_ROW, column=current_col + 1, value=t("col_time_s")).font = bold
             for c_i, (side, _) in enumerate(sides_data):
                 ws.cell(row=HEADER_ROW, column=current_col + 2 + c_i,
                         value=f"{side} (°)").font = bold
+            for d_i, (hdr, _) in enumerate(dist_cols):
+                ws.cell(row=HEADER_ROW, column=current_col + 2 + n_sides + d_i,
+                        value=hdr).font = bold
 
             # Data rows
             sides_order  = [side for side, _ in sides_data]
@@ -1600,18 +1657,21 @@ class App(ctk.CTk):
             for fr in range(max_len):
                 r = DATA_START + fr
                 ws.cell(row=r, column=current_col,     value=fr)
-                ws.cell(row=r, column=current_col + 1,
-                        value=round(fr / frame_rate, 4))
+                ws.cell(row=r, column=current_col + 1, value=round(fr / frame_rate, 4))
                 for c_i, side in enumerate(sides_order):
                     arr = side_arrays.get(side)
                     if arr is not None and fr < len(arr):
                         val = float(arr[fr])
                         ws.cell(row=r, column=current_col + 2 + c_i,
                                 value=None if _math.isnan(val) else round(val, 4))
+                for d_i, (_, slc) in enumerate(dist_cols):
+                    if slc is not None and fr < len(slc):
+                        d = float(slc[fr])
+                        ws.cell(row=r, column=current_col + 2 + n_sides + d_i,
+                                value=None if _math.isnan(d) else round(d, 3))
                 data_end_row = r
 
-            # Native LineChart anchored 2 rows below last data row,
-            # aligned to this block's starting column
+            # LineChart (angle columns only, not distance)
             if max_len > 0:
                 chart = LineChart()
                 chart.title        = mv_name
@@ -1634,80 +1694,7 @@ class App(ctk.CTk):
                 anchor_col = get_column_letter(current_col)
                 ws.add_chart(chart, f"{anchor_col}{data_end_row + 2}")
 
-            # Advance past this block + 1 empty separator column
             current_col += block_width + 1
-
-    def _xl_write_distance_comparison(
-        self,
-        ws,
-        c3d_path: str,
-        markers: list[tuple[str, str]],
-    ) -> None:
-        import math as _math
-        import numpy as _np
-        import ezc3d as _ezc3d
-        from openpyxl.styles import Font
-
-        bold = Font(bold=True)
-
-        for _marker_name, label_str in markers:
-            try:
-                c = _ezc3d.c3d(c3d_path)
-                raw_labels = c["parameters"]["POINT"]["LABELS"]["value"]
-                clean_labels = [
-                    lbl.split(":")[-1] if ":" in lbl else lbl
-                    for lbl in raw_labels
-                ]
-                if label_str not in clean_labels:
-                    logger.warning(
-                        "Distance comparison: label '%s' not found. Available: %s",
-                        label_str, clean_labels,
-                    )
-                    continue
-
-                idx = clean_labels.index(label_str)
-                try:
-                    rate_val   = c["parameters"]["POINT"]["RATE"]["value"]
-                    frame_rate = float(rate_val[0] if hasattr(rate_val, "__len__") else rate_val)
-                except (KeyError, IndexError, TypeError, ValueError):
-                    frame_rate = float(c["header"]["frame_rate"])
-                xyz      = c["data"]["points"][:3, idx, :].astype(float)  # (3, n_frames)
-                residual   = c["data"]["points"][3, idx, :]
-                valid_mask = residual >= 0
-                n_valid    = int(_np.sum(valid_mask))
-                n_frames   = xyz.shape[1]
-
-                distance = _np.linalg.norm(xyz, axis=0)          # (n_frames,)
-                distance[~valid_mask] = _np.nan
-
-                first3 = [
-                    round(float(distance[i]), 3)
-                    for i in range(min(3, n_frames))
-                    if not _np.isnan(distance[i])
-                ]
-                logger.info(
-                    "Distance comparison '%s': %d valid frames, first 3 distances = %s",
-                    label_str, n_valid, first3,
-                )
-
-                # Row 1: headers
-                ws.cell(row=1, column=1, value="Frame").font = bold
-                ws.cell(row=1, column=2, value="Time (s)").font = bold
-                ws.cell(row=1, column=3, value="Euclidean Distance (mm)").font = bold
-
-                # Rows 2..n_frames+1: data, frame index 0..N-1
-                for i in range(n_frames):
-                    row = 2 + i
-                    d = float(distance[i])
-                    ws.cell(row=row, column=1, value=i)
-                    ws.cell(row=row, column=2, value=round(i / frame_rate, 2))
-                    ws.cell(row=row, column=3,
-                            value=None if _math.isnan(d) else round(d, 3))
-
-            except Exception as exc:
-                logger.warning(
-                    "Distance comparison: skipping '%s' — %s", label_str, exc
-                )
 
     def _export_chart(self, fig, name: str = "chart") -> None:
         path = filedialog.asksaveasfilename(
