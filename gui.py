@@ -72,7 +72,7 @@ class App(ctk.CTk):
         self._import_rows: list[dict] = []
         self._process_btn: ctk.CTkButton | None = None
         self._processed: dict[tuple[str, str], dict] = {}
-        self._layout_vertical: bool = True
+        self._layout_vertical: bool = False
         self._charts: dict = {}
 
         # Navigation state (used to re-render on language change)
@@ -1561,7 +1561,7 @@ class App(ctk.CTk):
             if label_str and max_len > 0:
                 if is_bilateral:
                     cp   = sides_data[0][1].get("c3d_path", "")
-                    off  = int(sides_data[0][1].get("offset", 0))
+                    off  = int(sides_data[0][1].get("offset") or 0)
                     full = _load_dist(cp) if cp else None
                     slc  = (full[off: off + max_len]
                             if full is not None and off + max_len <= len(full)
