@@ -405,6 +405,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Trunk markers not found in C3D: {missing}",
         "es": "Marcadores de tronco no encontrados en el C3D: {missing}",
     },
+    "ylabel_degrees": {
+        "en": "Degrees (°)",
+        "es": "Grados (°)",
+    },
 }
 
 

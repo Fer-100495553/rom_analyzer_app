@@ -298,3 +298,158 @@ def plot_rom_summary(
     if valid_tops:
         ax.set_ylim(bottom=0, top=max(valid_tops) * 1.15)
     return fig
+
+
+def plot_rom_raincloud(
+    movements_data: dict,
+    ax=None,
+    ylabel: str = "°",
+) -> Figure:
+    """
+    Three vertical raincloud subplots side-by-side, one per metric
+    (ROM / Máximo / Mínimo), each with its own Y scale.
+
+    Args:
+        movements_data: {mv_name: [(side, data_dict), ...]}
+            data_dict["extended"][metric]["values"] → list[float] per repetition.
+        ax: ignored — always creates a new Figure with 3 subplots.
+    """
+    from scipy.stats import gaussian_kde
+    from matplotlib.patches import Rectangle, Patch
+
+    METRICS = [
+        ("rom",    "ROM"),
+        ("peak",   "Máximo"),
+        ("valley", "Mínimo"),
+    ]
+
+    _COLOR      = {"Left": "#E74C3C", "Right": "#2ECC71"}
+    _COLOR_DARK = {"Left": "#922B21", "Right": "#1A7A3C"}
+    _DEFAULT      = "#4A90D9"
+    _DEFAULT_DARK = "#1A5276"
+
+    _V_AMP  = 0.30   # max violin half-width (x units)
+    _BW     = 0.035  # boxplot x half-width
+    _SC_OFF = 0.10   # scatter x offset from series center
+    _SC_JIT = 0.03   # scatter jitter magnitude
+
+    mv_name    = next(iter(movements_data))
+    sides_data = movements_data[mv_name]
+    n_sides    = len(sides_data)
+
+    fig  = Figure(figsize=(9, 4.5))
+    axes = fig.subplots(1, 3)
+    fig.subplots_adjust(wspace=0.35, top=0.82)
+    fig.suptitle(mv_name, fontsize=13, fontweight="bold")
+
+    rng = np.random.default_rng(42)
+
+    def _draw_series(
+        cur_ax,
+        vals: np.ndarray,
+        x_c: float,
+        color: str,
+        color_dark: str,
+    ) -> None:
+        """Vertical raincloud: violin (left) + boxplot + scatter (right)."""
+        if vals.size == 0:
+            return
+
+        # 1. Half-violin extending left from x_c
+        if vals.size >= 2:
+            kde     = gaussian_kde(vals, bw_method="scott")
+            spread  = max(float(vals.std()) * 0.5, 0.5)
+            y_grid  = np.linspace(vals.min() - spread, vals.max() + spread, 300)
+            density = kde(y_grid)
+            peak    = density.max()
+            if peak > 0:
+                kde_x = x_c - (density / peak) * _V_AMP
+                cur_ax.fill_betweenx(y_grid, kde_x, x_c,
+                                     color=color, alpha=0.45, zorder=2)
+                cur_ax.plot(kde_x, y_grid, color=color, alpha=0.75,
+                            linewidth=1.0, zorder=3)
+
+        # 2. Vertical boxplot
+        q1, q2, q3 = np.percentile(vals, [25, 50, 75])
+        iqr      = q3 - q1
+        fence_lo = q1 - 1.5 * iqr
+        fence_hi = q3 + 1.5 * iqr
+        w_lo = vals[vals >= fence_lo].min() if np.any(vals >= fence_lo) else q1
+        w_hi = vals[vals <= fence_hi].max() if np.any(vals <= fence_hi) else q3
+
+        cur_ax.plot([x_c, x_c], [w_lo, q1], color=color, lw=1.2, zorder=4)
+        cur_ax.plot([x_c, x_c], [q3, w_hi], color=color, lw=1.2, zorder=4)
+        for wy in (w_lo, w_hi):
+            cur_ax.plot([x_c - _BW, x_c + _BW], [wy, wy],
+                        color=color, lw=1.2, zorder=4)
+        cur_ax.add_patch(Rectangle(
+            (x_c - _BW, q1), 2 * _BW, q3 - q1,
+            facecolor="white", edgecolor=color, linewidth=1.5, zorder=5,
+        ))
+        cur_ax.plot([x_c - _BW, x_c + _BW], [q2, q2],
+                    color=color, lw=2.0, zorder=6)
+
+        mean_val = float(vals.mean())
+        cur_ax.text(x_c, w_hi, f"{mean_val:.1f}°",
+                    ha="center", va="bottom", fontsize=10,
+                    fontweight="bold", color=color_dark, zorder=7)
+
+        outliers = vals[(vals < w_lo) | (vals > w_hi)]
+        if outliers.size:
+            cur_ax.scatter(np.full(outliers.size, x_c), outliers,
+                           color=color, s=25, marker="D", alpha=0.85, zorder=7)
+
+        # 3. Scatter jittered to the right of x_c
+        jitter = rng.uniform(-_SC_JIT, _SC_JIT, size=vals.size)
+        cur_ax.scatter(x_c + _SC_OFF + jitter, vals,
+                       color=color, s=35, alpha=0.85, zorder=3)
+
+    # ── Draw each metric in its own subplot ───────────────────────────────
+    seen_sides: dict = {}
+    for m_idx, (metric_key, metric_label) in enumerate(METRICS):
+        cur_ax = axes[m_idx]
+        cur_ax.set_title(metric_label, fontsize=10, fontweight="bold")
+
+        x_positions: list[float] = []
+        x_labels:    list[str]   = []
+
+        for side, data in sides_data:
+            seen_sides[side] = _COLOR.get(side, _DEFAULT)
+            raw  = data.get("extended", {}).get(metric_key, {}).get("values", [])
+            vals = np.array(
+                [v for v in raw if v is not None and not np.isnan(float(v))],
+                dtype=float,
+            )
+            if vals.size < 1:
+                continue
+
+            x_c = -0.22 if (n_sides > 1 and side == "Left") else (
+                   0.22 if (n_sides > 1 and side == "Right") else 0.0)
+
+            _draw_series(cur_ax, vals, x_c,
+                         _COLOR.get(side, _DEFAULT),
+                         _COLOR_DARK.get(side, _DEFAULT_DARK))
+            x_positions.append(x_c)
+            x_labels.append(side)
+
+        # X ticks — side labels
+        if x_positions:
+            cur_ax.set_xticks(x_positions)
+            cur_ax.set_xticklabels(x_labels, fontsize=9)
+        cur_ax.set_xlim(-0.65, 0.65)
+        cur_ax.tick_params(axis="x", length=0)
+
+        # Y axis
+        if m_idx == 0:
+            cur_ax.set_ylabel(ylabel, fontsize=9)
+        cur_ax.margins(y=0.2)
+        cur_ax.spines["top"].set_visible(False)
+        cur_ax.spines["right"].set_visible(False)
+        cur_ax.yaxis.grid(True, linestyle="--", alpha=0.4, zorder=0)
+
+    # ── Legend on rightmost subplot ────────────────────────────────────────
+    if len(seen_sides) > 1:
+        handles = [Patch(facecolor=c, label=s) for s, c in seen_sides.items()]
+        axes[2].legend(handles=handles, fontsize=8, loc="upper right")
+
+    return fig

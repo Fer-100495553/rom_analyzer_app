@@ -1050,66 +1050,9 @@ class App(ctk.CTk):
         sides_data: list[tuple[str, dict]],
         mv_name: str = "",
     ) -> None:
-        import numpy as _np
-        from matplotlib.figure import Figure
+        from plotting import plot_rom_raincloud
 
-        _SIDE_COLORS = {"Left": "#E74C3C", "Right": "#2ECC71"}
-        _DEFAULT_COLOR = "#4A90D9"
-
-        metric_keys   = ["rom", "peak", "valley"]
-        metric_labels = [t("s4_metric_rom"), t("s4_metric_peak"),
-                         t("s4_metric_valley")]
-
-        n_sides = len(sides_data)
-        bar_w   = 0.35 if n_sides > 1 else 0.5
-        x       = _np.arange(len(metric_keys))
-
-        fig = Figure(figsize=(5.5, 3.0), tight_layout=True)
-        ax  = fig.add_subplot(111)
-
-        all_tops: list[float] = []
-
-        for i, (side, data) in enumerate(sides_data):
-            extended = data.get("extended", {})
-            means = [extended.get(mk, {}).get("mean", float("nan"))
-                     for mk in metric_keys]
-            sds   = [extended.get(mk, {}).get("sd",   0.0)
-                     for mk in metric_keys]
-
-            all_tops.extend(
-                m + s for m, s in zip(means, sds) if not _np.isnan(m)
-            )
-
-            color  = _SIDE_COLORS.get(side, _DEFAULT_COLOR)
-            offset = (i - (n_sides - 1) / 2) * bar_w
-
-            bars = ax.bar(
-                x + offset, means, bar_w,
-                yerr=sds, capsize=4,
-                color=color, alpha=0.85,
-                error_kw={"elinewidth": 1.2, "capthick": 1.2},
-                label=side, zorder=3,
-            )
-
-            for bar, mean in zip(bars, means):
-                if not math.isnan(mean):
-                    ax.text(
-                        bar.get_x() + bar.get_width() / 2,
-                        bar.get_height() + max(abs(bar.get_height()) * 0.02, 0.5),
-                        f"{mean:.1f}",
-                        ha="center", va="bottom", fontsize=7,
-                    )
-
-        ax.set_xticks(x)
-        ax.set_xticklabels(metric_labels, fontsize=9)
-        ax.set_ylabel("°", fontsize=10)
-        ax.grid(True, axis="y", alpha=0.3, zorder=0)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        if all_tops:
-            ax.set_ylim(bottom=0, top=max(all_tops) * 1.15)
-        if n_sides > 1:
-            ax.legend(fontsize=8, loc="upper right")
+        fig = plot_rom_raincloud({mv_name: sides_data}, ylabel=t("ylabel_degrees"))
 
         self._charts[mv_name] = fig
         try:
