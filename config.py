@@ -13,47 +13,68 @@ MOVEMENT_DEFINITIONS: dict[str, dict] = {
         "component": 0,
         "description": "Shoulder flexion/extension (ZXY Rotation 1)",
         "has_side_prefix": True,
+        "display_name_key": "mv_shoulder_flex_ext",
     },
     "Shoulder Abd/Add": {
         "sulm_variable": "Humerothoracic_XZY_Op1",
         "component": 0,
         "description": "Shoulder abduction/adduction (XZY Rotation 1)",
         "has_side_prefix": True,
+        "display_name_key": "mv_shoulder_abd_add",
     },
     "Shoulder Int/Ext Rot": {
         "sulm_variable": "Humerothoracic_ZXY_Op1",
         "component": 2,
         "description": "Shoulder internal/external rotation (ZXY Rotation 3)",
         "has_side_prefix": True,
+        "display_name_key": "mv_shoulder_int_ext_rot",
     },
     "Elbow Flex/Ext": {
         "sulm_variable": "Elbow_Op1",
         "component": 0,
         "description": "Elbow flexion/extension (Rotation 1)",
         "has_side_prefix": True,
+        "display_name_key": "mv_elbow_flex_ext",
     },
     "Thorax Lateral Inclination": {
-        "type": "computed",
-        "compute_fn": "compute_trunk_extended_angles",
-        "primary_key": "lateral_inclination",
+        "type": "computed_pair",
+        "compute_fn": "compute_thorax_trunk_pair",
+        "primary_key": "thorax_norm_signed",
+        "pair_key": "trunk_inclination_z",
+        "pair_name": "Trunk Extended Lateral Inclination",
+        "pair_data_key": "angle_data",
         "label": "Thorax Lateral Inclination",
         "unit": "°",
         "has_side_prefix": False,
         "sulm_variable": None,
         "component": None,
-        "description": "Thorax lateral inclination computed from trunk markers",
+        "description": "Thorax lateral inclination (Euclidean norm of ThoraxAngles X+Y, signed via Trunk Inclination Angle Z)",
+        "display_name_key": "mv_thorax_lat_incl",
     },
     "Trunk Extended Lateral Inclination": {
-        "type": "computed",
-        "compute_fn": "compute_trunk_extended_angles",
-        "primary_key": "lateral_inclination",
+        "type": "computed_pair",
+        "compute_fn": "compute_thorax_trunk_pair",
+        "primary_key": "trunk_inclination_z",
+        "pair_key": "thorax_norm_signed",
+        "pair_name": "Thorax Lateral Inclination",
+        "pair_data_key": "angle_data_trunk",
         "label": "Trunk Extended Lateral Inclination",
         "unit": "°",
         "has_side_prefix": False,
         "sulm_variable": None,
         "component": None,
-        "description": "Trunk lateral inclination computed from IJ/LeftLumbar/RightLumbar markers",
+        "description": "Trunk extended lateral inclination from Trunk_Inclination_Angle Z component",
+        "display_name_key": "mv_trunk_ext_lat_incl",
     },
+}
+
+# Movements that always share one C3D file and one UI row.
+# Key = group label shown on screen 1. Value = ordered list of movement names.
+MOVEMENT_PAIR_GROUPS: dict[str, list[str]] = {
+    "Thorax / Trunk Extended Lateral Inclination": [
+        "Trunk Extended Lateral Inclination",
+        "Thorax Lateral Inclination",
+    ],
 }
 
 # Side prefixes are full words (verified from C3D label names)

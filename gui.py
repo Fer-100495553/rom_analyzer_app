@@ -38,6 +38,16 @@ def _card(parent, title: str) -> ctk.CTkFrame:
     return frame
 
 
+def _display_name(mv_name: str) -> str:
+    """Return the translated UI label for a movement, falling back to the key."""
+    from config import MOVEMENT_DEFINITIONS
+    key = MOVEMENT_DEFINITIONS.get(mv_name, {}).get("display_name_key", "")
+    if not key:
+        return mv_name
+    result = t(key)
+    return result if result != f"[{key}]" else mv_name
+
+
 # ══════════════════════════════════════════════════════════════════════════
 #  App — 4-screen ROM analysis application
 # ══════════════════════════════════════════════════════════════════════════
@@ -215,19 +225,48 @@ class App(ctk.CTk):
         card_mv = _card(f, t("s1_card_movements"))
         card_mv.pack(fill="x", pady=(0, 8))
 
-        from config import MOVEMENT_DEFINITIONS
+        from config import MOVEMENT_DEFINITIONS, MOVEMENT_PAIR_GROUPS
         self._movement_vars.clear()
 
+        # Collect all movement names that belong to a pair group
+        paired_members: set[str] = {
+            mv for members in MOVEMENT_PAIR_GROUPS.values() for mv in members
+        }
+        # Map first member → (group_label, all_members) for insertion order
+        pair_by_first: dict[str, tuple[str, list[str]]] = {}
+        for group_label, members in MOVEMENT_PAIR_GROUPS.items():
+            pair_by_first[members[0]] = (group_label, members)
+
+        rendered_groups: set[str] = set()
+
         for mv_name, mv_def in MOVEMENT_DEFINITIONS.items():
+            # Skip second (and further) pair members before creating any widget
+            if mv_name in paired_members and mv_name not in pair_by_first:
+                continue
+
             row = ctk.CTkFrame(card_mv, fg_color="transparent")
             row.pack(fill="x", padx=12, pady=2)
+
+            if mv_name in paired_members:  # must be pair_by_first at this point
+                group_label, members = pair_by_first[mv_name]
+                if group_label not in rendered_groups:
+                    rendered_groups.add(group_label)
+                    group_var = ctk.BooleanVar(value=False)
+                    for member in members:
+                        self._movement_vars[member] = group_var
+                    ctk.CTkCheckBox(
+                        row, text=t("s1_mv_thorax_trunk_group"), variable=group_var,
+                        width=380,
+                    ).pack(side="left")
+                continue
 
             var = ctk.BooleanVar(value=False)
             self._movement_vars[mv_name] = var
 
             is_optional = mv_def.get("optional", False)
-            display = (mv_name if not is_optional
-                       else f"{mv_name}  {t('s1_not_available')}")
+            _dn = _display_name(mv_name)
+            display = (_dn if not is_optional
+                       else f"{_dn}  {t('s1_not_available')}")
             ctk.CTkCheckBox(
                 row, text=display, variable=var, width=380,
                 state="disabled" if is_optional else "normal",
@@ -398,13 +437,104 @@ class App(ctk.CTk):
         scroll = ctk.CTkScrollableFrame(card_imp, height=320)
         scroll.pack(fill="x", padx=12, pady=(0, 8))
 
-        from config import MOVEMENT_DEFINITIONS
+        from config import MOVEMENT_DEFINITIONS, MOVEMENT_PAIR_GROUPS
         laterality = self._laterality_var.get()
 
-        for mv_name in selected_movements:
-            mv_def = MOVEMENT_DEFINITIONS[mv_name]
-            has_prefix = mv_def["has_side_prefix"]
+        # Build lookup: first member → (group_label, all_members)
+        pair_by_first: dict[str, tuple[str, list[str]]] = {}
+        for group_label, members in MOVEMENT_PAIR_GROUPS.items():
+            pair_by_first[members[0]] = (group_label, members)
+        paired_members: set[str] = {
+            mv for members in MOVEMENT_PAIR_GROUPS.values() for mv in members
+        }
 
+        rendered_as_pair: set[str] = set()
+        selected_set = set(selected_movements)
+
+        for mv_name in selected_movements:
+            if mv_name in rendered_as_pair:
+                continue
+
+            mv_def = MOVEMENT_DEFINITIONS[mv_name]
+
+            # ── Pair group row (shared file for Thorax + Trunk) ──────────
+            if mv_name in pair_by_first:
+                group_label, pair_members = pair_by_first[mv_name]
+                other_members = [m for m in pair_members if m != mv_name]
+                if all(m in selected_set for m in other_members):
+                    rendered_as_pair.update(pair_members)
+                    reps_range = range(num_reps) if is_individual else range(1)
+                    for rep_idx in reps_range:
+                        row_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+                        row_frame.pack(fill="x", pady=3)
+                        main_row = ctk.CTkFrame(row_frame, fg_color="transparent")
+                        main_row.pack(fill="x")
+
+                        mv_display = "Thorax/Trunk Ext." if rep_idx == 0 else ""
+                        ctk.CTkLabel(main_row, text=mv_display, width=160,
+                                     anchor="w", font=ctk.CTkFont(size=11),
+                                     ).pack(side="left", padx=2)
+                        ctk.CTkLabel(main_row, text=_NO_SIDE if rep_idx == 0 else "",
+                                     width=60, anchor="center",
+                                     font=ctk.CTkFont(size=11),
+                                     ).pack(side="left", padx=2)
+                        if is_individual:
+                            ctk.CTkLabel(
+                                main_row,
+                                text=t("s2_rep_label").format(n=rep_idx + 1),
+                                width=46, anchor="center",
+                                font=ctk.CTkFont(size=11),
+                            ).pack(side="left", padx=2)
+
+                        file_lbl = ctk.CTkLabel(
+                            main_row, text=t("s2_no_file"), width=260,
+                            anchor="w", font=ctk.CTkFont(size=10),
+                            text_color="gray",
+                        )
+                        file_lbl.pack(side="left", padx=2)
+
+                        row_data: dict = {
+                            "mv_name":          mv_name,
+                            "mv_names":         list(pair_members),
+                            "side":             _NO_SIDE,
+                            "bilateral":        False,
+                            "rep_idx":          rep_idx,
+                            "loaded":           False,
+                            "filename":         "",
+                            "c3d_path":         "",
+                            "angle_data":       None,
+                            "angle_data_trunk": None,
+                            "angle_data_left":  None,
+                            "angle_data_right": None,
+                            "frame_rate":       None,
+                            "events":           None,
+                            "file_lbl":         file_lbl,
+                            "status_lbl":       None,
+                            "offset_var":       ctk.BooleanVar(value=False),
+                            "is_individual":    is_individual,
+                            "is_pair":          True,
+                        }
+                        self._import_rows.append(row_data)
+
+                        ctk.CTkButton(
+                            main_row, text=t("s2_browse"), width=80,
+                            command=lambda rd=row_data: self._browse_c3d(rd),
+                        ).pack(side="left", padx=4)
+
+                        status_lbl = ctk.CTkLabel(
+                            main_row, text="✗", width=28,
+                            font=ctk.CTkFont(size=14), text_color="#E05252",
+                        )
+                        status_lbl.pack(side="left", padx=2)
+                        row_data["status_lbl"] = status_lbl
+
+                        self._restore_row_state(
+                            row_data,
+                            old_state.get((mv_name, _NO_SIDE, rep_idx)))
+                    continue
+
+            # ── Normal single-movement row ────────────────────────────────
+            has_prefix = mv_def["has_side_prefix"]
             if not has_prefix:
                 row_specs = [(_NO_SIDE, False)]
             elif laterality == "bilateral":
@@ -413,8 +543,6 @@ class App(ctk.CTk):
                 row_specs = [("Left", False), ("Right", False)]
 
             for side_label, is_bilateral in row_specs:
-                # In Individual mode: N file rows + shared offset row
-                # In Continuous mode: 1 file row + offset row (existing logic)
                 reps_range = range(num_reps) if is_individual else range(1)
 
                 for rep_idx in reps_range:
@@ -424,7 +552,7 @@ class App(ctk.CTk):
                     main_row = ctk.CTkFrame(row_frame, fg_color="transparent")
                     main_row.pack(fill="x")
 
-                    mv_display = mv_name if rep_idx == 0 else ""
+                    mv_display = _display_name(mv_name) if rep_idx == 0 else ""
                     ctk.CTkLabel(main_row, text=mv_display, width=160,
                                  anchor="w", font=ctk.CTkFont(size=11),
                                  ).pack(side="left", padx=2)
@@ -532,6 +660,7 @@ class App(ctk.CTk):
 
         from data_processing import (
             read_c3d, list_available_angles, compute_trunk_extended_angles,
+            compute_thorax_trunk_pair,
         )
         from config import MOVEMENT_DEFINITIONS
 
@@ -544,8 +673,31 @@ class App(ctk.CTk):
             )
             return
 
+        fname = os.path.basename(path)
+
+        # ── Paired row (Thorax + Trunk Extended share one file) ───────────
+        if row_data.get("is_pair"):
+            try:
+                result = compute_thorax_trunk_pair(c3d_data)
+            except KeyError as exc:
+                messagebox.showwarning(
+                    t("s2_vars_not_found_title"),
+                    t("err_thorax_trunk_vars_missing").format(missing=str(exc)),
+                )
+                return
+            row_data["angle_data"]        = result["thorax_norm_signed"]
+            row_data["angle_data_trunk"]  = result["trunk_inclination_z"]
+            row_data["loaded"]     = True
+            row_data["filename"]   = fname
+            row_data["c3d_path"]   = path
+            row_data["frame_rate"] = c3d_data["frame_rate"]
+            row_data["events"]     = c3d_data.get("events", [])
+            row_data["file_lbl"].configure(text=fname, text_color="white")
+            row_data["status_lbl"].configure(text="✓", text_color="#4CAF50")
+            self._update_process_btn()
+            return
+
         mv_def    = MOVEMENT_DEFINITIONS[row_data["mv_name"]]
-        fname     = os.path.basename(path)
         model_outputs = c3d_data["model_outputs"]
 
         # ── Computed type (marker-based, e.g. Thorax/Trunk Extended Lateral Inclination) ──
@@ -626,12 +778,30 @@ class App(ctk.CTk):
     #  Screen 3 — Segmentation (modal windows per movement+side)
     # ══════════════════════════════════════════════════════════════════════
 
+    @staticmethod
+    def _expand_pair_rows(rows: list[dict]) -> list[dict]:
+        """Expand paired file rows into two virtual single-movement rows."""
+        from config import MOVEMENT_DEFINITIONS
+        out = []
+        for r in rows:
+            if r.get("is_pair"):
+                for mv_name in r["mv_names"]:
+                    data_key = MOVEMENT_DEFINITIONS[mv_name].get(
+                        "pair_data_key", "angle_data")
+                    out.append({**r, "mv_name": mv_name,
+                                "angle_data": r.get(data_key),
+                                "is_pair": False})
+            else:
+                out.append(r)
+        return out
+
     def _start_segmentation(self) -> None:
         from segmentation import C3DSegmentationWindow
         from data_processing import apply_offset, compute_extended_stats_array
         from config import MOVEMENT_DEFINITIONS
 
-        for row_data in self._import_rows:
+        rows_to_process = self._expand_pair_rows(self._import_rows)
+        for row_data in rows_to_process:
             mv_name    = row_data["mv_name"]
             frame_rate = row_data["frame_rate"]
             events     = row_data["events"] or []
@@ -733,9 +903,12 @@ class App(ctk.CTk):
         from individual_review import IndividualReviewWindow
         from data_processing import apply_offset
 
+        # Expand pair rows before grouping
+        expanded = self._expand_pair_rows(self._import_rows)
+
         # Group rows by (mv_name, side)
         groups: dict[tuple[str, str], list[dict]] = {}
-        for r in self._import_rows:
+        for r in expanded:
             key = (r["mv_name"], r["side"])
             groups.setdefault(key, []).append(r)
 
@@ -851,11 +1024,28 @@ class App(ctk.CTk):
         _is_dark = ctk.get_appearance_mode() == "Dark"
         _bg_alt = "#2A2D2E" if _is_dark else "#EBEBEB"
 
+        from config import MOVEMENT_PAIR_GROUPS
         groups: dict[str, list[tuple[str, dict]]] = {}
         for (mv_name, side), data in self._processed.items():
             groups.setdefault(mv_name, []).append((side, data))
 
-        for mv_name, sides_data in groups.items():
+        from config import MOVEMENT_DEFINITIONS
+        _def_order = {name: i for i, name in enumerate(MOVEMENT_DEFINITIONS)}
+        _pair_members: set[str] = {mv for members in MOVEMENT_PAIR_GROUPS.values() for mv in members}
+        _pair_sub: dict[str, int] = {}
+        _sub = 0
+        for members in MOVEMENT_PAIR_GROUPS.values():
+            for mv in members:
+                _pair_sub[mv] = _sub
+                _sub += 1
+
+        def _sort_key(item):
+            name = item[0]
+            if name in _pair_members:
+                return (999 + _pair_sub.get(name, 0), name)
+            return (_def_order.get(name, 500), name)
+
+        for mv_name, sides_data in sorted(groups.items(), key=_sort_key):
             self._build_movement_section(scroll, mv_name, sides_data, _bg_alt)
 
         # ── Fixed bottom action bar ────────────────────────────────────────
@@ -891,7 +1081,7 @@ class App(ctk.CTk):
         section.pack(fill="x", padx=4, pady=(0, 10))
 
         ctk.CTkLabel(
-            section, text=mv_name,
+            section, text=_display_name(mv_name),
             font=ctk.CTkFont(size=13, weight="bold"),
         ).pack(anchor="w", padx=12, pady=(8, 4))
 
@@ -905,15 +1095,118 @@ class App(ctk.CTk):
 
             tbl_frame = ctk.CTkFrame(content, fg_color="transparent")
             tbl_frame.pack(fill="x")
-            self._build_movement_table(tbl_frame, sides_data, bg_alt)
+            self._build_movement_table(tbl_frame, sides_data, bg_alt, mv_name)
         else:
             tbl_frame = ctk.CTkFrame(content, fg_color="transparent")
             tbl_frame.pack(side="left", fill="both", expand=True, padx=(0, 4))
-            self._build_movement_table(tbl_frame, sides_data, bg_alt)
+            self._build_movement_table(tbl_frame, sides_data, bg_alt, mv_name)
 
             chart_frame = ctk.CTkFrame(content, fg_color="transparent")
             chart_frame.pack(side="left", fill="both", expand=True)
             self._build_movement_chart(chart_frame, sides_data, mv_name)
+
+    def _build_trunk_pair_chart(
+        self,
+        sides_data: list[tuple[str, dict]],
+        mv_name: str,
+    ):
+        """Raincloud chart for trunk pair movements: 3 subplots ROM/Right/Left, independent Y axes."""
+        from matplotlib.figure import Figure
+        from matplotlib.patches import Rectangle
+        import numpy as np
+        try:
+            from scipy.stats import gaussian_kde
+            _HAS_SCIPY = True
+        except ImportError:
+            _HAS_SCIPY = False
+
+        METRICS = [
+            ("rom",    t("s4_metric_rom"),   "#3B82F6", "#1D4ED8"),
+            ("peak",   t("s4_metric_right"), "#22C55E", "#15803D"),
+            ("valley", t("s4_metric_left"),  "#EF4444", "#B91C1C"),
+        ]
+        _V_AMP, _BW, _SC_OFF, _SC_JIT = 0.30, 0.035, 0.10, 0.03
+
+        extended = {}
+        for _, data in sides_data:
+            extended = data.get("extended", {})
+            break
+
+        fig = Figure(figsize=(9, 4.5))
+        axes = fig.subplots(1, 3)
+        fig.subplots_adjust(wspace=0.35, top=0.82)
+        fig.suptitle(mv_name, fontsize=13, fontweight="bold")
+        rng = np.random.default_rng(42)
+
+        for m_idx, (metric_key, metric_label, color, color_dark) in enumerate(METRICS):
+            cur_ax = axes[m_idx]
+            cur_ax.set_title(metric_label, fontsize=10, fontweight="bold")
+            raw  = extended.get(metric_key, {}).get("values", [])
+            vals = np.array(
+                [v for v in raw if v is not None and not np.isnan(float(v))],
+                dtype=float,
+            )
+            x_c = 0.0
+
+            if vals.size >= 1:
+                if vals.size >= 2 and _HAS_SCIPY:
+                    kde     = gaussian_kde(vals, bw_method="scott")
+                    spread  = max(float(vals.std()) * 0.5, 0.5)
+                    y_grid  = np.linspace(vals.min() - spread, vals.max() + spread, 300)
+                    density = kde(y_grid)
+                    peak    = density.max()
+                    if peak > 0:
+                        kde_x = x_c - (density / peak) * _V_AMP
+                        cur_ax.fill_betweenx(y_grid, kde_x, x_c,
+                                             color=color, alpha=0.45, zorder=2)
+                        cur_ax.plot(kde_x, y_grid, color=color, alpha=0.75,
+                                    linewidth=1.0, zorder=3)
+
+                q1, q2, q3 = np.percentile(vals, [25, 50, 75])
+                iqr      = q3 - q1
+                fence_lo = q1 - 1.5 * iqr
+                fence_hi = q3 + 1.5 * iqr
+                w_lo = vals[vals >= fence_lo].min() if np.any(vals >= fence_lo) else q1
+                w_hi = vals[vals <= fence_hi].max() if np.any(vals <= fence_hi) else q3
+                cur_ax.plot([x_c, x_c], [w_lo, q1], color=color, lw=1.2, zorder=4)
+                cur_ax.plot([x_c, x_c], [q3, w_hi], color=color, lw=1.2, zorder=4)
+                for wy in (w_lo, w_hi):
+                    cur_ax.plot([x_c - _BW, x_c + _BW], [wy, wy],
+                                color=color, lw=1.2, zorder=4)
+                cur_ax.add_patch(Rectangle(
+                    (x_c - _BW, q1), 2 * _BW, q3 - q1,
+                    facecolor="white", edgecolor=color, linewidth=1.5, zorder=5,
+                ))
+                cur_ax.plot([x_c - _BW, x_c + _BW], [q2, q2],
+                            color=color, lw=2.0, zorder=6)
+                mean_val = float(vals.mean())
+                cur_ax.text(x_c, w_hi, f"{mean_val:.1f}°",
+                            ha="center", va="bottom", fontsize=10,
+                            fontweight="bold", color=color_dark, zorder=7)
+                outliers = vals[(vals < w_lo) | (vals > w_hi)]
+                if outliers.size:
+                    cur_ax.scatter(np.full(outliers.size, x_c), outliers,
+                                   color=color, s=25, marker="D", alpha=0.85, zorder=7)
+                jitter = rng.uniform(-_SC_JIT, _SC_JIT, size=vals.size)
+                cur_ax.scatter(x_c + _SC_OFF + jitter, vals,
+                               color=color, s=35, alpha=0.85, zorder=3)
+
+            cur_ax.set_xticks([x_c])
+            cur_ax.set_xticklabels([metric_label], fontsize=9)
+            cur_ax.set_xlim(-0.65, 0.65)
+            cur_ax.tick_params(axis="x", length=0)
+            if m_idx == 0:
+                cur_ax.set_ylabel(t("ylabel_degrees"), fontsize=9)
+            cur_ax.margins(y=0.2)
+            cur_ax.spines["top"].set_visible(False)
+            cur_ax.spines["right"].set_visible(False)
+            cur_ax.yaxis.grid(True, linestyle="--", alpha=0.4, zorder=0)
+
+        from matplotlib.ticker import MaxNLocator
+        for ax_ in axes:
+            ax_.yaxis.set_major_locator(MaxNLocator(nbins=5, integer=False))
+
+        return fig
 
     def _build_movement_chart(
         self,
@@ -921,9 +1214,15 @@ class App(ctk.CTk):
         sides_data: list[tuple[str, dict]],
         mv_name: str = "",
     ) -> None:
-        from plotting import plot_rom_raincloud
+        from config import MOVEMENT_PAIR_GROUPS
+        _pair_members = {mv for members in MOVEMENT_PAIR_GROUPS.values()
+                         for mv in members}
 
-        fig = plot_rom_raincloud({mv_name: sides_data}, ylabel=t("ylabel_degrees"))
+        if mv_name in _pair_members:
+            fig = self._build_trunk_pair_chart(sides_data, mv_name)
+        else:
+            from plotting import plot_rom_raincloud
+            fig = plot_rom_raincloud({mv_name: sides_data}, ylabel=t("ylabel_degrees"))
 
         self._charts[mv_name] = fig
         try:
@@ -943,6 +1242,7 @@ class App(ctk.CTk):
         parent,
         sides_data: list[tuple[str, dict]],
         bg_alt: str,
+        mv_name: str = "",
     ) -> None:
         headers = [
             t("s4_hdr_side"), t("s4_hdr_metric"),
@@ -960,11 +1260,23 @@ class App(ctk.CTk):
                          anchor="w").grid(row=0, column=c, padx=2, pady=2,
                                           sticky="w")
 
-        metric_labels = [
-            (t("s4_metric_rom"),    "rom"),
-            (t("s4_metric_peak"),   "peak"),
-            (t("s4_metric_valley"), "valley"),
-        ]
+        from config import MOVEMENT_PAIR_GROUPS
+        _pair_members = {mv for members in MOVEMENT_PAIR_GROUPS.values()
+                         for mv in members}
+        _is_trunk_pair = mv_name in _pair_members
+
+        if _is_trunk_pair:
+            metric_labels = [
+                (t("s4_metric_rom"),   "rom"),
+                (t("s4_metric_right"), "peak"),
+                (t("s4_metric_left"),  "valley"),
+            ]
+        else:
+            metric_labels = [
+                (t("s4_metric_rom"),    "rom"),
+                (t("s4_metric_peak"),   "peak"),
+                (t("s4_metric_valley"), "valley"),
+            ]
 
         offset_notes: list[str] = []
         row_idx = 1

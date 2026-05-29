@@ -571,6 +571,72 @@ def compute_trunk_extended_angles(
     }
 
 
+def compute_thorax_trunk_pair(c3d_data: dict) -> dict:
+    """
+    Computes Thorax Lateral Inclination and Trunk Extended Lateral Inclination
+    from the same C3D file.
+
+    Thorax Lateral Inclination:
+        Euclidean norm of ThoraxAngles X (index 0) and Y (index 1).
+        Orientation-invariant but sign-free. Sign is recovered from the
+        Trunk Inclination Angle Z component (index 2).
+
+    Trunk Extended Lateral Inclination:
+        Z component (index 2) of the variable whose cleaned label contains
+        'Trunk_Inclination_Angle'. Always signed.
+
+    Returns:
+        {
+            "thorax_norm_signed":  np.ndarray shape (n_frames,),
+            "trunk_inclination_z": np.ndarray shape (n_frames,),
+        }
+
+    Raises:
+        KeyError: with a descriptive message if either variable is not found.
+    """
+    model_outputs = c3d_data["model_outputs"]
+
+    # ── Locate ThoraxAngles ──────────────────────────────────────────────
+    thorax_arr = None
+    for key, arr in model_outputs.items():
+        clean = key.split(":")[-1].strip().replace(" ", "_").upper()
+        if "THORAXANGLES" in clean:
+            thorax_arr = arr
+            break
+    if thorax_arr is None:
+        raise KeyError(
+            "ThoraxAngles not found in C3D model outputs. "
+            f"Available: {list(model_outputs.keys())}"
+        )
+
+    # ── Locate Trunk Inclination Angle ───────────────────────────────────
+    trunk_arr = None
+    for key, arr in model_outputs.items():
+        clean = key.split(":")[-1].strip().replace(" ", "_").upper()
+        if "TRUNK_INCLINATION_ANGLE" in clean or "TRUNKINCLINATIONANGLE" in clean:
+            trunk_arr = arr
+            break
+    if trunk_arr is None:
+        raise KeyError(
+            "Trunk_Inclination_Angle not found in C3D model outputs. "
+            f"Available: {list(model_outputs.keys())}"
+        )
+
+    x = thorax_arr[0, :].astype(float)
+    y = thorax_arr[1, :].astype(float)
+    norm = np.sqrt(x ** 2 + y ** 2)
+
+    trunk_z = trunk_arr[2, :].astype(float) - 90.0   # remove 90° hardware offset
+
+    sign_vec = np.where(trunk_z >= 0, 1.0, -1.0)
+    thorax_signed = norm * sign_vec
+
+    return {
+        "thorax_norm_signed":  thorax_signed,
+        "trunk_inclination_z": trunk_z,
+    }
+
+
 def detect_events(c3d_data: dict) -> list[dict]:
     """
     Return the Nexus event markers stored in the C3D file.

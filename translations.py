@@ -158,6 +158,8 @@ _STRINGS: dict[str, dict[str, str]] = {
     "s4_metric_rom": {"en": "ROM", "es": "ROM"},
     "s4_metric_peak": {"en": "Peak", "es": "Máximo"},
     "s4_metric_valley": {"en": "Valley", "es": "Mínimo"},
+    "s4_metric_left":   {"en": "Left",   "es": "Izquierda"},
+    "s4_metric_right":  {"en": "Right",  "es": "Derecha"},
     "s4_offset_note_prefix": {
         "en": "* Offset correction applied (neutral position calibration): ",
         "es": "* Corrección de offset aplicada (calibración de posición neutral): ",
@@ -358,6 +360,28 @@ _STRINGS: dict[str, dict[str, str]] = {
     "right_col_valley_frame": {"en": "Right Valley Frame",    "es": "Fotograma Mín. Der."},
     "right_col_valley_time":  {"en": "Right Valley Time (s)", "es": "Tiempo Mín. Der. (s)"},
     "right_col_valley_angle": {"en": "Right Valley (°)",      "es": "Mínimo Der. (°)"},
+    # ── Movement display names ────────────────────────────────────────────────
+    "mv_shoulder_flex_ext":    {"en": "Shoulder Flex/Ext",    "es": "Hombro Flex/Ext"},
+    "mv_shoulder_abd_add":     {"en": "Shoulder Abd/Add",     "es": "Hombro Abd/Add"},
+    "mv_shoulder_int_ext_rot": {"en": "Shoulder Int/Ext Rot", "es": "Hombro Rot Int/Ext"},
+    "mv_elbow_flex_ext":       {"en": "Elbow Flex/Ext",       "es": "Codo Flex/Ext"},
+    "mv_thorax_lat_incl": {
+        "en": "Thorax Lateral Inclination",
+        "es": "Inclinación Lateral del Tórax",
+    },
+    "mv_trunk_ext_lat_incl": {
+        "en": "Trunk Extended Lateral Inclination",
+        "es": "Inclinación Lateral Extendida del Tronco",
+    },
+    # ── Thorax / Trunk pair ───────────────────────────────────────────────────
+    "err_thorax_trunk_vars_missing": {
+        "en": "Required variables not found in C3D: {missing}",
+        "es": "Variables requeridas no encontradas en el C3D: {missing}",
+    },
+    "s1_mv_thorax_trunk_group": {
+        "en": "Thorax / Trunk Extended Lateral Inclination",
+        "es": "Inclinación Lateral Tórax / Tronco Extendido",
+    },
     # ── Trunk Extended ────────────────────────────────────────────────────────
     "movement_thorax_lateral_inclination": {
         "en": "Thorax Lateral Inclination",
