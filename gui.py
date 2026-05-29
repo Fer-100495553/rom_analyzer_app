@@ -20,9 +20,7 @@ _NO_SIDE = "—"
 
 # ── Widget keys excluded when saving/restoring import-row state ────────────
 _ROW_WIDGET_KEYS = frozenset({
-    "file_lbl", "status_lbl", "offset_cb",
-    "offset_entry", "offset_left_entry", "offset_right_entry",
-    "offset_var", "offset_entry_var", "offset_left_var", "offset_right_var",
+    "file_lbl", "status_lbl",
 })
 
 
@@ -66,7 +64,7 @@ class App(ctk.CTk):
 
         # ── Persistent session state ──────────────────────────────────────
         self._movement_vars: dict[str, ctk.BooleanVar] = {}
-        self._laterality_var = ctk.StringVar(value="bilateral")
+        self._laterality_var = ctk.StringVar(value="unilateral")
         self._recording_type_var = ctk.StringVar(value="continuous")
         self._num_reps_var = ctk.IntVar(value=6)
         self._import_rows: list[dict] = []
@@ -250,8 +248,8 @@ class App(ctk.CTk):
         lat_row.pack(anchor="w", padx=12, pady=(0, 10))
 
         for text_key, val, hint_key in [
-            ("s1_bilateral",  "bilateral",  "s1_bilateral_hint"),
             ("s1_unilateral", "unilateral", "s1_unilateral_hint"),
+            ("s1_bilateral",  "bilateral",  "s1_bilateral_hint"),
         ]:
             col = ctk.CTkFrame(lat_row, fg_color="transparent")
             col.pack(side="left", padx=(0, 28))
@@ -368,14 +366,6 @@ class App(ctk.CTk):
         for r in self._import_rows:
             key = (r["mv_name"], r["side"], r.get("rep_idx", 0))
             saved: dict = {k: v for k, v in r.items() if k not in _ROW_WIDGET_KEYS}
-            for sv_key, plain_key in (
-                ("offset_entry_var",  "_offset_entry"),
-                ("offset_left_var",   "_offset_left"),
-                ("offset_right_var",  "_offset_right"),
-            ):
-                if sv_key in r:
-                    saved[plain_key] = r[sv_key].get()
-            saved["_offset_enabled"] = r["offset_var"].get()
             old_state[key] = saved
         self._import_rows.clear()
 
@@ -459,7 +449,6 @@ class App(ctk.CTk):
                     )
                     file_lbl.pack(side="left", padx=2)
 
-                    offset_var = ctk.BooleanVar(value=False)
                     row_data: dict = {
                         "mv_name":          mv_name,
                         "side":             side_label,
@@ -475,7 +464,7 @@ class App(ctk.CTk):
                         "events":           None,
                         "file_lbl":         file_lbl,
                         "status_lbl":       None,
-                        "offset_var":       offset_var,
+                        "offset_var":       ctk.BooleanVar(value=False),
                         "is_individual":    is_individual,
                     }
                     self._import_rows.append(row_data)
@@ -492,110 +481,10 @@ class App(ctk.CTk):
                     status_lbl.pack(side="left", padx=2)
                     row_data["status_lbl"] = status_lbl
 
-                    # ── Offset correction row (first rep only in Individual) ─
-                    show_offset = (not is_individual) or (rep_idx == 0)
-                    if show_offset:
-                        offset_row = ctk.CTkFrame(row_frame,
-                                                  fg_color="transparent")
-                        offset_row.pack(fill="x", padx=4, pady=(0, 2))
-
-                        spacer_w = 268 if not is_individual else 272
-                        ctk.CTkLabel(offset_row, text="",
-                                     width=spacer_w).pack(side="left")
-
-                        if is_bilateral:
-                            off_left_var  = ctk.StringVar(value="0.0")
-                            off_right_var = ctk.StringVar(value="0.0")
-                            row_data["offset_left_var"]  = off_left_var
-                            row_data["offset_right_var"] = off_right_var
-
-                            off_left_entry  = ctk.CTkEntry(
-                                offset_row, textvariable=off_left_var,
-                                width=60, state="disabled")
-                            off_right_entry = ctk.CTkEntry(
-                                offset_row, textvariable=off_right_var,
-                                width=60, state="disabled")
-
-                            def _make_bilateral_toggle(cb_v, el, er):
-                                def _toggle():
-                                    s = "normal" if cb_v.get() else "disabled"
-                                    el.configure(state=s)
-                                    er.configure(state=s)
-                                return _toggle
-
-                            off_cb = ctk.CTkCheckBox(
-                                offset_row, text=t("s2_offset_cb"), width=180,
-                                variable=offset_var, state="disabled",
-                                command=_make_bilateral_toggle(
-                                    offset_var, off_left_entry,
-                                    off_right_entry),
-                            )
-                            off_cb.pack(side="left", padx=(0, 4))
-                            ctk.CTkLabel(offset_row, text="L:",
-                                         font=ctk.CTkFont(size=10)).pack(
-                                             side="left")
-                            off_left_entry.pack(side="left", padx=2)
-                            ctk.CTkLabel(offset_row, text="R:",
-                                         font=ctk.CTkFont(size=10)).pack(
-                                             side="left", padx=(6, 0))
-                            off_right_entry.pack(side="left", padx=2)
-                            row_data["offset_cb"]          = off_cb
-                            row_data["offset_left_entry"]  = off_left_entry
-                            row_data["offset_right_entry"] = off_right_entry
-                        else:
-                            off_entry_var = ctk.StringVar(value="0.0")
-                            row_data["offset_entry_var"] = off_entry_var
-                            off_entry = ctk.CTkEntry(
-                                offset_row, textvariable=off_entry_var,
-                                width=70, state="disabled")
-
-                            def _make_toggle(cb_v, entry):
-                                def _toggle():
-                                    entry.configure(
-                                        state="normal" if cb_v.get()
-                                        else "disabled")
-                                return _toggle
-
-                            off_cb = ctk.CTkCheckBox(
-                                offset_row, text=t("s2_offset_cb"), width=180,
-                                variable=offset_var, state="disabled",
-                                command=_make_toggle(offset_var, off_entry),
-                            )
-                            off_cb.pack(side="left", padx=(0, 4))
-                            off_entry.pack(side="left", padx=2)
-                            row_data["offset_cb"]    = off_cb
-                            row_data["offset_entry"] = off_entry
-
-                        ctk.CTkLabel(
-                            offset_row, text=t("s2_offset_hint"),
-                            font=ctk.CTkFont(size=9), text_color="gray",
-                        ).pack(side="left", padx=(6, 0))
-
                     # Restore state if available
                     self._restore_row_state(
                         row_data,
                         old_state.get((mv_name, side_label, rep_idx)))
-
-                # In Individual mode, share the offset_var from rep 0 with all
-                # reps in this (mv_name, side_label) group so they use the same
-                # offset when processing.
-                if is_individual and num_reps > 1:
-                    group = [r for r in self._import_rows
-                             if r["mv_name"] == mv_name
-                             and r["side"] == side_label]
-                    if group:
-                        shared_offset = group[0]["offset_var"]
-                        for r in group[1:]:
-                            r["offset_var"] = shared_offset
-                            if "offset_entry_var" in group[0]:
-                                r["offset_entry_var"] = (
-                                    group[0]["offset_entry_var"])
-                            if "offset_left_var" in group[0]:
-                                r["offset_left_var"] = (
-                                    group[0]["offset_left_var"])
-                            if "offset_right_var" in group[0]:
-                                r["offset_right_var"] = (
-                                    group[0]["offset_right_var"])
 
         # Navigation buttons
         nav = ctk.CTkFrame(f, fg_color="transparent")
@@ -628,26 +517,10 @@ class App(ctk.CTk):
             if field in old:
                 row_data[field] = old[field]
 
-        # Restore offset values
-        row_data["offset_var"].set(old.get("_offset_enabled", False))
-        if "_offset_entry" in old and "offset_entry_var" in row_data:
-            row_data["offset_entry_var"].set(old["_offset_entry"])
-        if "_offset_left" in old and "offset_left_var" in row_data:
-            row_data["offset_left_var"].set(old["_offset_left"])
-        if "_offset_right" in old and "offset_right_var" in row_data:
-            row_data["offset_right_var"].set(old["_offset_right"])
-
         # Update widgets to reflect loaded state
         fname = old.get("filename", "…")
         row_data["file_lbl"].configure(text=fname, text_color="white")
         row_data["status_lbl"].configure(text="✓", text_color="#4CAF50")
-        if "offset_cb" in row_data:
-            row_data["offset_cb"].configure(state="normal")
-            if old.get("_offset_enabled"):
-                for entry_key in ("offset_entry", "offset_left_entry",
-                                  "offset_right_entry"):
-                    if entry_key in row_data:
-                        row_data[entry_key].configure(state="normal")
 
     def _browse_c3d(self, row_data: dict) -> None:
         path = filedialog.askopenfilename(
@@ -675,7 +548,7 @@ class App(ctk.CTk):
         fname     = os.path.basename(path)
         model_outputs = c3d_data["model_outputs"]
 
-        # ── Computed type (marker-based, e.g. Trunk Lateral Inclination) ──
+        # ── Computed type (marker-based, e.g. Thorax/Trunk Extended Lateral Inclination) ──
         if mv_def.get("type") == "computed":
             try:
                 trunk_angles = compute_trunk_extended_angles(c3d_data)
@@ -740,8 +613,6 @@ class App(ctk.CTk):
 
         row_data["file_lbl"].configure(text=fname, text_color="white")
         row_data["status_lbl"].configure(text="✓", text_color="#4CAF50")
-        if "offset_cb" in row_data:
-            row_data["offset_cb"].configure(state="normal")
 
         self._update_process_btn()
 
@@ -1229,7 +1100,6 @@ class App(ctk.CTk):
         var_summary  = ctk.BooleanVar(value=True)
         var_rep      = ctk.BooleanVar(value=True)
         var_raw      = ctk.BooleanVar(value=True)
-        var_distance = ctk.BooleanVar(value=False)
 
         ctk.CTkCheckBox(
             win, text=t("s4_xlsx_sheet_summary"), variable=var_summary,
@@ -1237,24 +1107,9 @@ class App(ctk.CTk):
         ctk.CTkCheckBox(
             win, text=t("s4_xlsx_sheet_rep_detail"), variable=var_rep,
         ).pack(anchor="w", padx=32, pady=4)
-        raw_cb = ctk.CTkCheckBox(
+        ctk.CTkCheckBox(
             win, text=t("s4_xlsx_sheet_raw_data"), variable=var_raw,
-        )
-        raw_cb.pack(anchor="w", padx=32, pady=4)
-
-        dist_cb = ctk.CTkCheckBox(
-            win, text=t("export_distance_comparison"), variable=var_distance,
-            state="normal",
-        )
-        dist_cb.pack(anchor="w", padx=52, pady=2)
-
-        def _toggle_raw():
-            state = "normal" if var_raw.get() else "disabled"
-            dist_cb.configure(state=state)
-            if not var_raw.get():
-                var_distance.set(False)
-
-        raw_cb.configure(command=_toggle_raw)
+        ).pack(anchor="w", padx=32, pady=4)
 
         def _do_export():
             selected = []
@@ -1265,9 +1120,7 @@ class App(ctk.CTk):
             if var_raw.get():
                 selected.append("raw_data")
 
-            distance_markers = [("T8", "Diff_T8F_T8V")] if var_distance.get() else []
-
-            if not selected and not distance_markers:
+            if not selected:
                 messagebox.showwarning(
                     t("s4_xlsx_no_sheets_title"),
                     t("s4_xlsx_no_sheets_msg"),
@@ -1284,7 +1137,7 @@ class App(ctk.CTk):
             if not path:
                 return
             win.destroy()
-            self._build_and_save_xlsx(path, selected, distance_markers)
+            self._build_and_save_xlsx(path, selected)
 
         btn_frame = ctk.CTkFrame(win, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=(12, 16))
@@ -1296,7 +1149,6 @@ class App(ctk.CTk):
         self,
         path: str,
         sheets: list,
-        distance_markers: list | None = None,
     ) -> None:
         import openpyxl
 
@@ -1306,12 +1158,6 @@ class App(ctk.CTk):
         groups: dict = {}
         for (mv_name, side), data in self._processed.items():
             groups.setdefault(mv_name, []).append((side, data))
-
-        c3d_path = next(
-            (d.get("c3d_path", "") for d in self._processed.values()
-             if d.get("c3d_path")),
-            "",
-        )
 
         if "summary" in sheets:
             ws = wb.create_sheet(t("s4_xlsx_sheet_summary"))
@@ -1323,7 +1169,7 @@ class App(ctk.CTk):
 
         if "raw_data" in sheets:
             ws = wb.create_sheet(t("s4_xlsx_sheet_raw_data"))
-            self._xl_write_raw_data(ws, groups, distance_markers, c3d_path)
+            self._xl_write_raw_data(ws, groups)
 
         wb.save(path)
         messagebox.showinfo(
@@ -1498,8 +1344,6 @@ class App(ctk.CTk):
         self,
         ws,
         groups: dict,
-        distance_markers: list | None = None,
-        c3d_path: str = "",
     ) -> None:
         import math as _math
         import numpy as _np
@@ -1512,32 +1356,6 @@ class App(ctk.CTk):
         HEADER_ROW  = 2
         DATA_START  = 3
         current_col = 1
-
-        label_str   = distance_markers[0][1] if distance_markers else None
-        _dist_cache: dict = {}
-
-        def _load_dist(path: str) -> "_np.ndarray | None":
-            if path in _dist_cache:
-                return _dist_cache[path]
-            try:
-                import ezc3d as _ezc3d
-                c          = _ezc3d.c3d(path)
-                raw_labels = c["parameters"]["POINT"]["LABELS"]["value"]
-                clean      = [l.split(":")[-1] if ":" in l else l for l in raw_labels]
-                if label_str not in clean:
-                    _dist_cache[path] = None
-                    return None
-                idx   = clean.index(label_str)
-                xyz   = c["data"]["points"][:3, idx, :].astype(float)
-                valid = c["data"]["points"][3, idx, :] >= 0
-                dist  = _np.linalg.norm(xyz, axis=0)
-                dist[~valid] = _np.nan
-                _dist_cache[path] = dist
-                logger.info("T8 dist loaded: %d valid frames", int(_np.sum(valid)))
-            except Exception as exc:
-                logger.warning("Could not load T8 dist from %s: %s", path, exc)
-                _dist_cache[path] = None
-            return _dist_cache[path]
 
         for mv_name, sides_data in groups.items():
             side_arrays: dict = {}
@@ -1556,29 +1374,7 @@ class App(ctk.CTk):
             is_bilateral = len({d.get("c3d_path", "") for _, d in sides_data}) == 1
             label_suffix = " (Bilateral)" if is_bilateral else " (Unilateral)"
 
-            # Build dist column specs: [(header, per-frame slice or None), ...]
-            dist_cols: list = []
-            if label_str and max_len > 0:
-                if is_bilateral:
-                    cp   = sides_data[0][1].get("c3d_path", "")
-                    off  = int(sides_data[0][1].get("offset") or 0)
-                    full = _load_dist(cp) if cp else None
-                    slc  = (full[off: off + max_len]
-                            if full is not None and off + max_len <= len(full)
-                            else None)
-                    dist_cols = [("Dist T8 (mm)", slc)]
-                else:
-                    for side, data in sides_data:
-                        cp   = data.get("c3d_path", "")
-                        off  = int(data.get("offset") or 0)
-                        n    = len(side_arrays.get(side, []))
-                        full = _load_dist(cp) if cp else None
-                        slc  = (full[off: off + n]
-                                if full is not None and n > 0 and off + n <= len(full)
-                                else None)
-                        dist_cols.append((f"Dist T8 {side} (mm)", slc))
-
-            block_width = 2 + n_sides + len(dist_cols)
+            block_width = 2 + n_sides
 
             # Title row
             ws.cell(row=TITLE_ROW, column=current_col,
@@ -1590,9 +1386,6 @@ class App(ctk.CTk):
             for c_i, (side, _) in enumerate(sides_data):
                 ws.cell(row=HEADER_ROW, column=current_col + 2 + c_i,
                         value=f"{side} (°)").font = bold
-            for d_i, (hdr, _) in enumerate(dist_cols):
-                ws.cell(row=HEADER_ROW, column=current_col + 2 + n_sides + d_i,
-                        value=hdr).font = bold
 
             # Data rows
             sides_order  = [side for side, _ in sides_data]
@@ -1607,14 +1400,9 @@ class App(ctk.CTk):
                         val = float(arr[fr])
                         ws.cell(row=r, column=current_col + 2 + c_i,
                                 value=None if _math.isnan(val) else round(val, 4))
-                for d_i, (_, slc) in enumerate(dist_cols):
-                    if slc is not None and fr < len(slc):
-                        d = float(slc[fr])
-                        ws.cell(row=r, column=current_col + 2 + n_sides + d_i,
-                                value=None if _math.isnan(d) else round(d, 3))
                 data_end_row = r
 
-            # LineChart (angle columns only, not distance)
+            # LineChart
             if max_len > 0:
                 chart = LineChart()
                 chart.title        = mv_name
@@ -1678,7 +1466,7 @@ class App(ctk.CTk):
         self._import_rows.clear()
         self._processed.clear()
         self._process_btn = None
-        self._laterality_var.set("bilateral")
+        self._laterality_var.set("unilateral")
         self._recording_type_var.set("continuous")
         self._num_reps_var.set(6)
         self._layout_vertical = True

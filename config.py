@@ -32,11 +32,22 @@ MOVEMENT_DEFINITIONS: dict[str, dict] = {
         "description": "Elbow flexion/extension (Rotation 1)",
         "has_side_prefix": True,
     },
-    "Trunk Lateral Inclination": {
+    "Thorax Lateral Inclination": {
         "type": "computed",
         "compute_fn": "compute_trunk_extended_angles",
         "primary_key": "lateral_inclination",
-        "label": "Trunk Lateral Inclination",
+        "label": "Thorax Lateral Inclination",
+        "unit": "°",
+        "has_side_prefix": False,
+        "sulm_variable": None,
+        "component": None,
+        "description": "Thorax lateral inclination computed from trunk markers",
+    },
+    "Trunk Extended Lateral Inclination": {
+        "type": "computed",
+        "compute_fn": "compute_trunk_extended_angles",
+        "primary_key": "lateral_inclination",
+        "label": "Trunk Extended Lateral Inclination",
         "unit": "°",
         "has_side_prefix": False,
         "sulm_variable": None,
@@ -71,7 +82,8 @@ NORMATIVE_ROM: dict[str, dict] = {
     "Shoulder Abd/Add":            {"max": 170, "label": "Abduction"},
     "Shoulder Int/Ext Rot":        {"max": 155, "label": "Total (Int+Ext)"},
     "Elbow Flex/Ext":              {"max": 140, "label": "Flexion"},
-    "Trunk Lateral Inclination":   {"max": 35,  "label": "Per side"},
+    "Thorax Lateral Inclination":            {"max": 35,  "label": "Per side"},
+    "Trunk Extended Lateral Inclination":   {"max": 35,  "label": "Per side"},
 }
 
 # ── Label-filtering keywords ──────────────────────────────────────────────

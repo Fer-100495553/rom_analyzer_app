@@ -358,36 +358,14 @@ _STRINGS: dict[str, dict[str, str]] = {
     "right_col_valley_frame": {"en": "Right Valley Frame",    "es": "Fotograma Mín. Der."},
     "right_col_valley_time":  {"en": "Right Valley Time (s)", "es": "Tiempo Mín. Der. (s)"},
     "right_col_valley_angle": {"en": "Right Valley (°)",      "es": "Mínimo Der. (°)"},
-    # ── Distance Comparison export ────────────────────────────────────────────
-    "export_distance_comparison": {
-        "en": "Distance Comparison",
-        "es": "Comparación de Distancia",
-    },
-    "dist_T8": {"en": "T8", "es": "T8"},
-    "dist_C7": {"en": "C7", "es": "C7"},
-    "sheet_distance_comparison": {
-        "en": "Distance Comparison",
-        "es": "Comparación de Distancia",
-    },
-    "dist_col_metric": {"en": "Metric",  "es": "Métrica"},
-    "dist_col_value":  {"en": "Value",   "es": "Valor"},
-    "dist_col_units":  {"en": "Units",   "es": "Unidades"},
-    "dist_mean":         {"en": "Mean distance",    "es": "Distancia media"},
-    "dist_sd":           {"en": "SD",               "es": "DT"},
-    "dist_rmse":         {"en": "RMSE",             "es": "RMSE"},
-    "dist_max":          {"en": "Max distance",     "es": "Distancia máxima"},
-    "dist_p95":          {"en": "95th percentile",  "es": "Percentil 95"},
-    "dist_mae_x":        {"en": "MAE X",            "es": "MAE X"},
-    "dist_mae_y":        {"en": "MAE Y",            "es": "MAE Y"},
-    "dist_mae_z":        {"en": "MAE Z",            "es": "MAE Z"},
-    "dist_valid_frames": {"en": "Valid frames",     "es": "Fotogramas válidos"},
-    "dist_units_mm":     {"en": "mm",               "es": "mm"},
-    "dist_units_none":   {"en": "—",                "es": "—"},
-    "dist_y_axis":       {"en": "Distance (mm)",    "es": "Distancia (mm)"},
     # ── Trunk Extended ────────────────────────────────────────────────────────
-    "movement_trunk_lateral_inclination": {
-        "en": "Trunk Lateral Inclination",
-        "es": "Inclinación Lateral del Tronco",
+    "movement_thorax_lateral_inclination": {
+        "en": "Thorax Lateral Inclination",
+        "es": "Inclinación Lateral del Tórax",
+    },
+    "movement_trunk_extended_lateral_inclination": {
+        "en": "Trunk Extended Lateral Inclination",
+        "es": "Inclinación Lateral Extendida del Tronco",
     },
     "plot_flexion_extension": {
         "en": "Flexion / Extension",
