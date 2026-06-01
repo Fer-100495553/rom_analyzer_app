@@ -472,8 +472,8 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
             elif roms and i < len(roms) and not np.isnan(roms[i]):
                 label += f"\n{roms[i]:.1f}°"
             self.ax.text(
-                (ts + te) / 2, 0.97, label,
-                fontsize=7, ha="center", va="top",
+                (ts + te) / 2, 0.5, label,
+                fontsize=7, ha="center", va="center",
                 transform=self.ax.get_xaxis_transform(), color=color,
             )
 

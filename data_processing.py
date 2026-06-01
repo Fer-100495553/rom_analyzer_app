@@ -4,6 +4,7 @@ import logging
 import os
 import numpy as np
 import pandas as pd
+from scipy.signal import argrelmin
 
 logger = logging.getLogger(__name__)
 
@@ -571,19 +572,71 @@ def compute_trunk_extended_angles(
     }
 
 
-def compute_thorax_trunk_pair(c3d_data: dict) -> dict:
+def _unfold_norm_signal(
+    norm: np.ndarray,
+    initial_sign: float,
+    threshold: float = 15.0,
+    order: int = 5,
+) -> np.ndarray:
+    """
+    Recover a continuously-signed signal from its absolute-value (norm) form.
+
+    At each local minimum of `norm` that falls below `threshold`, the running
+    sign is flipped, producing a smooth signal that crosses zero instead of
+    bouncing off it.
+
+    Args:
+        norm:         Non-negative signal (e.g. Euclidean norm), shape (n,).
+        initial_sign: +1.0 or -1.0 — polarity of the first segment.
+        threshold:    Minima with norm <= this value (degrees) are treated as
+                      zero-crossings and trigger a sign flip.
+        order:        Half-window used by argrelmin to find local minima.
+
+    Returns:
+        Signed signal of the same shape as `norm`.
+    """
+    sign_arr = np.full(len(norm), initial_sign)
+
+    # Local minima indices (argrelmin returns a 1-tuple)
+    minima_idx = argrelmin(norm, order=order)[0]
+
+    # Keep only minima that are close enough to zero
+    flip_points = minima_idx[norm[minima_idx] <= threshold]
+
+    current_sign = initial_sign
+    prev = 0
+    for fp in flip_points:
+        sign_arr[prev:fp] = current_sign
+        current_sign *= -1.0
+        prev = fp
+    sign_arr[prev:] = current_sign
+
+    return norm * sign_arr
+
+
+def compute_thorax_trunk_pair(
+    c3d_data: dict,
+    zero_threshold: float = 15.0,
+) -> dict:
     """
     Computes Thorax Lateral Inclination and Trunk Extended Lateral Inclination
     from the same C3D file.
 
     Thorax Lateral Inclination:
         Euclidean norm of ThoraxAngles X (index 0) and Y (index 1).
-        Orientation-invariant but sign-free. Sign is recovered from the
-        Trunk Inclination Angle Z component (index 2).
+        Sign is recovered via absolute-value unfolding: local minima of the
+        norm that are below `zero_threshold` degrees are treated as
+        zero-crossings and trigger a sign flip. The polarity of the first
+        segment is determined by the sign of trunk_z in the first 10 frames.
 
     Trunk Extended Lateral Inclination:
         Z component (index 2) of the variable whose cleaned label contains
         'Trunk_Inclination_Angle'. Always signed.
+
+    Args:
+        c3d_data:       Output of :func:`read_c3d`.
+        zero_threshold: Norm minima at or below this value (degrees) are
+                        considered zero-crossings. Default 15.0°.
 
     Returns:
         {
@@ -628,8 +681,10 @@ def compute_thorax_trunk_pair(c3d_data: dict) -> dict:
 
     trunk_z = trunk_arr[2, :].astype(float) - 90.0   # remove 90° hardware offset
 
-    sign_vec = np.where(trunk_z >= 0, 1.0, -1.0)
-    thorax_signed = norm * sign_vec
+    # Initial polarity from the first 10 frames of trunk_z (robust to noise)
+    initial_sign = 1.0 if float(np.median(trunk_z[:10])) >= 0.0 else -1.0
+
+    thorax_signed = _unfold_norm_signal(norm, initial_sign, threshold=zero_threshold)
 
     return {
         "thorax_norm_signed":  thorax_signed,

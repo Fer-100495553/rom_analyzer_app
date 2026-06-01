@@ -321,6 +321,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Save Excel file",
         "es": "Guardar archivo Excel",
     },
+    # ── CSV export dialog ────────────────────────────────────────────────────
+    "s4_export_csv": {"en": "Export CSV", "es": "Exportar CSV"},
+    "s4_csv_dlg_win_title": {"en": "Export to CSV", "es": "Exportar a CSV"},
+    "s4_csv_dlg_file_title": {"en": "Save CSV file", "es": "Guardar archivo CSV"},
+    "s4_csv_dlg_saved_title": {"en": "Saved", "es": "Guardado"},
+    "s4_csv_dlg_saved_msg": {
+        "en": "CSV saved:\n{paths}",
+        "es": "CSV guardado:\n{paths}",
+    },
     # ── Excel export (refactor) ───────────────────────────────────────────────
     "left_side": {
         "en": "LEFT SIDE",

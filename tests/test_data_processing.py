@@ -18,6 +18,8 @@ from data_processing import (
     extract_angle_curve_sided,
     compute_rom_stats_array,
     detect_events,
+    compute_thorax_trunk_pair,
+    _unfold_norm_signal,
 )
 
 
@@ -146,6 +148,140 @@ def test_compute_rom_stats_array_nan_segment() -> None:
 
     assert np.isnan(stats["roms"][0])
     assert not np.isnan(stats["roms"][1])
+
+
+# ── _unfold_norm_signal ────────────────────────────────────────────────────
+
+def test_unfold_recovers_sine_from_abs_sine() -> None:
+    """
+    |sin(t)| should unfold back to ±sin(t) (up to initial-sign polarity).
+    We verify the unfolded signal matches the original sin(t) in shape,
+    tolerating a global sign flip if initial_sign=-1.
+    """
+    t = np.linspace(0, 4 * np.pi, 400)
+    original = np.sin(t)
+    norm = np.abs(original)
+
+    unfolded = _unfold_norm_signal(norm, initial_sign=1.0, threshold=0.15, order=5)
+
+    # Allow global sign flip: check both polarities
+    err_pos = np.max(np.abs(unfolded - original))
+    err_neg = np.max(np.abs(unfolded + original))
+    assert min(err_pos, err_neg) < 0.15, (
+        f"Unfolded signal does not match ±sin(t); "
+        f"min error={min(err_pos, err_neg):.4f}"
+    )
+
+
+def test_unfold_initial_sign_positive() -> None:
+    """First segment must carry the requested initial sign."""
+    norm = np.abs(np.sin(np.linspace(0, 2 * np.pi, 200)))
+    unfolded = _unfold_norm_signal(norm, initial_sign=1.0, threshold=0.15, order=5)
+    # First value is sin(0)≈0, check a slightly later frame
+    assert unfolded[10] > 0.0
+
+
+def test_unfold_initial_sign_negative() -> None:
+    """First segment must carry negative initial sign when requested."""
+    norm = np.abs(np.sin(np.linspace(0, 2 * np.pi, 200)))
+    unfolded = _unfold_norm_signal(norm, initial_sign=-1.0, threshold=0.15, order=5)
+    assert unfolded[10] < 0.0
+
+
+def test_unfold_no_flip_above_threshold() -> None:
+    """Minima above threshold must NOT trigger a sign flip."""
+    # Signal oscillates between 20 and 30 — never close to zero
+    t = np.linspace(0, 4 * np.pi, 300)
+    norm = 25.0 + 5.0 * np.sin(t)
+    unfolded = _unfold_norm_signal(norm, initial_sign=1.0, threshold=15.0, order=5)
+    # No flip → all values positive
+    assert np.all(unfolded > 0.0)
+
+
+# ── compute_thorax_trunk_pair ──────────────────────────────────────────────
+
+def _make_thorax_c3d(
+    thorax_x: np.ndarray,
+    thorax_y: np.ndarray,
+    trunk_z_raw: np.ndarray,
+) -> dict:
+    """Build a minimal c3d_data dict with ThoraxAngles and Trunk_Inclination_Angle."""
+    n = len(thorax_x)
+    thorax_arr = np.zeros((3, n))
+    thorax_arr[0, :] = thorax_x
+    thorax_arr[1, :] = thorax_y
+
+    trunk_arr = np.zeros((3, n))
+    # trunk_z_raw is the value BEFORE the 90° offset correction
+    trunk_arr[2, :] = trunk_z_raw
+
+    return {
+        "frame_rate": 100,
+        "n_frames": n,
+        "point_labels": ["ThoraxAngles", "Trunk_Inclination_Angle"],
+        "model_outputs": {
+            "ThoraxAngles": thorax_arr,
+            "Trunk_Inclination_Angle": trunk_arr,
+        },
+        "events": [],
+    }
+
+
+def test_thorax_trunk_pair_initial_sign_from_trunk_z() -> None:
+    """
+    When trunk_z (after -90 offset) is positive in the first 10 frames,
+    the first segment of thorax_norm_signed must be positive.
+    """
+    n = 300
+    t = np.linspace(0, 4 * np.pi, n)
+    thorax_x = np.abs(np.sin(t)) * 20.0
+    thorax_y = np.zeros(n)
+    # trunk_z after offset = +10 → raw = 100
+    trunk_z_raw = np.full(n, 100.0)
+
+    data = _make_thorax_c3d(thorax_x, thorax_y, trunk_z_raw)
+    result = compute_thorax_trunk_pair(data, zero_threshold=3.0)
+
+    assert result["thorax_norm_signed"][10] > 0.0
+
+
+def test_thorax_trunk_pair_initial_sign_negative() -> None:
+    """
+    When trunk_z (after -90 offset) is negative in the first 10 frames,
+    the first segment of thorax_norm_signed must be negative.
+    """
+    n = 300
+    t = np.linspace(0, 4 * np.pi, n)
+    thorax_x = np.abs(np.sin(t)) * 20.0
+    thorax_y = np.zeros(n)
+    # trunk_z after offset = -10 → raw = 80
+    trunk_z_raw = np.full(n, 80.0)
+
+    data = _make_thorax_c3d(thorax_x, thorax_y, trunk_z_raw)
+    result = compute_thorax_trunk_pair(data, zero_threshold=3.0)
+
+    assert result["thorax_norm_signed"][10] < 0.0
+
+
+def test_thorax_trunk_pair_trunk_z_offset_removed() -> None:
+    """trunk_inclination_z in the output must have 90° subtracted."""
+    n = 100
+    trunk_z_raw = np.full(n, 100.0)
+    data = _make_thorax_c3d(np.ones(n), np.zeros(n), trunk_z_raw)
+    result = compute_thorax_trunk_pair(data)
+    np.testing.assert_allclose(result["trunk_inclination_z"], 10.0)
+
+
+def test_thorax_trunk_pair_missing_thorax_raises() -> None:
+    data = _make_c3d_data(["Trunk_Inclination_Angle"])
+    with pytest.raises(KeyError, match="ThoraxAngles"):
+        compute_thorax_trunk_pair(data)
+
+
+def test_thorax_trunk_pair_missing_trunk_raises() -> None:
+    data = _make_c3d_data(["ThoraxAngles"])
+    with pytest.raises(KeyError, match="Trunk_Inclination_Angle"):
+        compute_thorax_trunk_pair(data)
 
 
 # ── detect_events ──────────────────────────────────────────────────────────

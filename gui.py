@@ -1057,6 +1057,10 @@ class App(ctk.CTk):
             command=self._export_xlsx_dialog,
         ).pack(side="left")
         ctk.CTkButton(
+            btn_row, text=t("s4_export_csv"), width=130,
+            command=self._export_csv_dialog,
+        ).pack(side="left", padx=(6, 0))
+        ctk.CTkButton(
             btn_row, text=t("s4_new_analysis"), width=160,
             font=ctk.CTkFont(weight="bold"),
             command=self._new_analysis,
@@ -1391,6 +1395,203 @@ class App(ctk.CTk):
             msg += t("s4_csv_offset_applied").format(
                 notes="\n".join(notes))
         messagebox.showinfo(t("s4_csv_saved_title"), msg)
+
+    def _export_csv_dialog(self) -> None:
+        if not self._processed:
+            return
+
+        win = ctk.CTkToplevel(self)
+        win.title(t("s4_csv_dlg_win_title"))
+        win.geometry("340x300")
+        win.resizable(False, False)
+        win.grab_set()
+        win.lift()
+        win.focus_force()
+
+        ctk.CTkLabel(
+            win, text=t("s4_xlsx_select_sheets"),
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(padx=20, pady=(16, 8))
+
+        var_summary = ctk.BooleanVar(value=True)
+        var_rep     = ctk.BooleanVar(value=True)
+        var_raw     = ctk.BooleanVar(value=True)
+
+        ctk.CTkCheckBox(
+            win, text=t("s4_xlsx_sheet_summary"), variable=var_summary,
+        ).pack(anchor="w", padx=32, pady=4)
+        ctk.CTkCheckBox(
+            win, text=t("s4_xlsx_sheet_rep_detail"), variable=var_rep,
+        ).pack(anchor="w", padx=32, pady=4)
+        ctk.CTkCheckBox(
+            win, text=t("s4_xlsx_sheet_raw_data"), variable=var_raw,
+        ).pack(anchor="w", padx=32, pady=4)
+
+        def _do_export():
+            selected = []
+            if var_summary.get():
+                selected.append("summary")
+            if var_rep.get():
+                selected.append("rep_detail")
+            if var_raw.get():
+                selected.append("raw_data")
+
+            if not selected:
+                messagebox.showwarning(
+                    t("s4_xlsx_no_sheets_title"),
+                    t("s4_xlsx_no_sheets_msg"),
+                    parent=win,
+                )
+                return
+
+            path = filedialog.asksaveasfilename(
+                parent=win,
+                title=t("s4_csv_dlg_file_title"),
+                defaultextension=".csv",
+                filetypes=[("CSV", "*.csv")],
+                initialfile="ROM_Summary.csv",
+            )
+            if not path:
+                return
+            win.destroy()
+            self._build_and_save_csv(path, selected)
+
+        btn_frame = ctk.CTkFrame(win, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(12, 16))
+        ctk.CTkButton(
+            btn_frame, text=t("s4_xlsx_export_btn"), command=_do_export,
+        ).pack(side="right")
+
+    def _build_and_save_csv(self, path: str, sections: list) -> None:
+        import os
+        stem, _ = os.path.splitext(path)
+
+        builders = {
+            "summary":    self._csv_build_summary,
+            "rep_detail": self._csv_build_rep_detail,
+            "raw_data":   self._csv_build_raw_data,
+        }
+
+        saved = []
+        for section in sections:
+            out = path if len(sections) == 1 else f"{stem}_{section}.csv"
+            builders[section]().to_csv(out, index=False)
+            saved.append(out)
+
+        messagebox.showinfo(
+            t("s4_csv_dlg_saved_title"),
+            t("s4_csv_dlg_saved_msg").format(paths="\n".join(saved)),
+        )
+
+    def _csv_build_summary(self) -> "pd.DataFrame":
+        rows = []
+        for (mv_name, side), data in self._processed.items():
+            extended = data.get("extended", {})
+            is_bilateral = len({
+                d.get("c3d_path", "")
+                for d in [data]
+            }) == 1
+            mv_label = mv_name
+            for metric_label, metric_key in (
+                (t("s4_metric_rom"),    "rom"),
+                (t("s4_metric_peak"),   "peak"),
+                (t("s4_metric_valley"), "valley"),
+            ):
+                stats  = extended.get(metric_key, {})
+                values = stats.get("values", [])
+                m  = stats.get("mean", float("nan"))
+                s  = stats.get("sd",   0.0)
+                mn = stats.get("min",  float("nan"))
+                mx = stats.get("max",  float("nan"))
+                rows.append({
+                    "Movement": mv_label,
+                    "Side":     side,
+                    "Metric":   metric_label,
+                    "N_reps":   len(values),
+                    "Mean_deg": round(m,  2) if not math.isnan(m)  else None,
+                    "SD_deg":   round(s,  2),
+                    "Min_deg":  round(mn, 2) if not math.isnan(mn) else None,
+                    "Max_deg":  round(mx, 2) if not math.isnan(mx) else None,
+                })
+        return pd.DataFrame(rows)
+
+    def _csv_build_rep_detail(self) -> "pd.DataFrame":
+        import numpy as _np
+        rows = []
+        for (mv_name, side), data in self._processed.items():
+            segments  = data.get("segments", [])
+            angle_arr = data.get("angle_data")
+            extended  = data.get("extended", {})
+            frame_rate = float(data.get("frame_rate") or 100.0)
+
+            if segments and isinstance(angle_arr, _np.ndarray):
+                for i, (s, e) in enumerate(segments):
+                    chunk = angle_arr[s : e + 1]
+                    valid = chunk[~_np.isnan(chunk)]
+                    if valid.size == 0:
+                        rows.append({
+                            "Movement": mv_name, "Side": side, "Rep": i + 1,
+                            "Peak_frame": None, "Peak_time_s": None, "Peak_deg": None,
+                            "Valley_frame": None, "Valley_time_s": None, "Valley_deg": None,
+                            "ROM_deg": None,
+                        })
+                    else:
+                        pk_fr  = s + int(_np.nanargmax(chunk))
+                        vl_fr  = s + int(_np.nanargmin(chunk))
+                        pk_val = float(_np.nanmax(chunk))
+                        vl_val = float(_np.nanmin(chunk))
+                        rows.append({
+                            "Movement":     mv_name,
+                            "Side":         side,
+                            "Rep":          i + 1,
+                            "Peak_frame":   pk_fr,
+                            "Peak_time_s":  round(pk_fr / frame_rate, 4),
+                            "Peak_deg":     round(pk_val, 2),
+                            "Valley_frame": vl_fr,
+                            "Valley_time_s": round(vl_fr / frame_rate, 4),
+                            "Valley_deg":   round(vl_val, 2),
+                            "ROM_deg":      round(pk_val - vl_val, 2),
+                        })
+            else:
+                peak_vals   = extended.get("peak",   {}).get("values", [])
+                valley_vals = extended.get("valley", {}).get("values", [])
+                rom_vals    = extended.get("rom",    {}).get("values", [])
+                n = max(len(peak_vals), len(valley_vals), len(rom_vals), 0)
+                for i in range(n):
+                    pk = peak_vals[i]   if i < len(peak_vals)   else float("nan")
+                    vl = valley_vals[i] if i < len(valley_vals) else float("nan")
+                    rm = rom_vals[i]    if i < len(rom_vals)    else float("nan")
+                    rows.append({
+                        "Movement":     mv_name,
+                        "Side":         side,
+                        "Rep":          i + 1,
+                        "Peak_frame":   None,
+                        "Peak_time_s":  None,
+                        "Peak_deg":     round(pk, 2) if not math.isnan(pk) else None,
+                        "Valley_frame": None,
+                        "Valley_time_s": None,
+                        "Valley_deg":   round(vl, 2) if not math.isnan(vl) else None,
+                        "ROM_deg":      round(rm, 2) if not math.isnan(rm) else None,
+                    })
+        return pd.DataFrame(rows)
+
+    def _csv_build_raw_data(self) -> "pd.DataFrame":
+        import numpy as _np
+        rows = []
+        for (mv_name, side), data in self._processed.items():
+            angle_arr  = data.get("angle_data")
+            frame_rate = float(data.get("frame_rate") or 100.0)
+            if not isinstance(angle_arr, _np.ndarray):
+                continue
+            for fr, val in enumerate(angle_arr):
+                rows.append({
+                    "Movement": mv_name,
+                    "Side":     side,
+                    "Frame":    fr,
+                    "Time_s":   round(fr / frame_rate, 4),
+                    "Angle_deg": None if math.isnan(float(val)) else round(float(val), 4),
+                })
+        return pd.DataFrame(rows)
 
     def _export_xlsx_dialog(self) -> None:
         if not self._processed:
