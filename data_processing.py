@@ -681,10 +681,25 @@ def compute_thorax_trunk_pair(
 
     trunk_z = trunk_arr[2, :].astype(float) - 90.0   # remove 90° hardware offset
 
-    # Initial polarity from the first 10 frames of trunk_z (robust to noise)
-    initial_sign = 1.0 if float(np.median(trunk_z[:10])) >= 0.0 else -1.0
+    # Identify zero-crossings of the norm (local minima below threshold).
+    # These are the boundaries between direction segments.
+    minima_idx = argrelmin(norm, order=5)[0]
+    flip_points = minima_idx[norm[minima_idx] <= zero_threshold]
 
-    thorax_signed = _unfold_norm_signal(norm, initial_sign, threshold=zero_threshold)
+    # For each segment between flip points, determine sign from the median of
+    # trunk_z in that segment. Both signals represent the same anatomical
+    # movement, so their polarity must agree segment by segment. This is more
+    # robust than a global correlation check, which can miss individual
+    # inverted segments.
+    n = len(norm)
+    sign_arr = np.ones(n)
+    boundaries = np.concatenate([[0], flip_points, [n]]).astype(int)
+    for i in range(len(boundaries) - 1):
+        start, end = boundaries[i], boundaries[i + 1]
+        ref_median = float(np.median(trunk_z[start:end]))
+        sign_arr[start:end] = 1.0 if ref_median >= 0.0 else -1.0
+
+    thorax_signed = norm * sign_arr
 
     return {
         "thorax_norm_signed":  thorax_signed,
