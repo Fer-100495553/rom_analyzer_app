@@ -801,90 +801,122 @@ class App(ctk.CTk):
         from config import MOVEMENT_DEFINITIONS
 
         rows_to_process = self._expand_pair_rows(self._import_rows)
+
+        # Build a flat list of all items to segment upfront so we can index
+        # into it freely (needed for back-navigation).
+        all_items: list[dict] = []
         for row_data in rows_to_process:
-            mv_name    = row_data["mv_name"]
-            frame_rate = row_data["frame_rate"]
-            events     = row_data["events"] or []
-            offset_on  = row_data["offset_var"].get()
-            mv_def     = MOVEMENT_DEFINITIONS[mv_name]
+            mv_name     = row_data["mv_name"]
+            frame_rate  = row_data["frame_rate"]
+            events      = row_data["events"] or []
+            offset_on   = row_data["offset_var"].get()
+            mv_def      = MOVEMENT_DEFINITIONS[mv_name]
             is_computed = mv_def.get("type") == "computed"
 
             if row_data["bilateral"]:
                 try:
-                    off_l = (float(row_data["offset_left_var"].get())
-                             if offset_on else 0.0)
+                    off_l = float(row_data["offset_left_var"].get()) if offset_on else 0.0
                 except (ValueError, KeyError):
                     off_l = 0.0
                 try:
-                    off_r = (float(row_data["offset_right_var"].get())
-                             if offset_on else 0.0)
+                    off_r = float(row_data["offset_right_var"].get()) if offset_on else 0.0
                 except (ValueError, KeyError):
                     off_r = 0.0
-
                 sides_to_seg: list[tuple] = [
                     ("Left",
-                     apply_offset(row_data["angle_data_left"], off_l)
-                     if offset_on else row_data["angle_data_left"],
+                     apply_offset(row_data["angle_data_left"], off_l) if offset_on
+                     else row_data["angle_data_left"],
                      off_l if offset_on else None,
                      None),
                     ("Right",
-                     apply_offset(row_data["angle_data_right"], off_r)
-                     if offset_on else row_data["angle_data_right"],
+                     apply_offset(row_data["angle_data_right"], off_r) if offset_on
+                     else row_data["angle_data_right"],
                      off_r if offset_on else None,
                      None),
                 ]
             else:
                 try:
-                    off = (float(row_data["offset_entry_var"].get())
-                           if offset_on else 0.0)
+                    off = float(row_data["offset_entry_var"].get()) if offset_on else 0.0
                 except (ValueError, KeyError):
                     off = 0.0
-                ang = (apply_offset(row_data["angle_data"], off)
-                       if offset_on else row_data["angle_data"])
+                ang         = apply_offset(row_data["angle_data"], off) if offset_on else row_data["angle_data"]
                 trunk_angles = row_data.get("trunk_angles") if is_computed else None
-                sides_to_seg = [(row_data["side"], ang,
-                                 off if offset_on else None,
-                                 trunk_angles)]
+                sides_to_seg = [(row_data["side"], ang, off if offset_on else None, trunk_angles)]
 
             for side, angle_arr, offset_val, trunk_ang in sides_to_seg:
-                title = (f"{mv_name} — {side}"
-                         if side != _NO_SIDE else mv_name)
+                all_items.append({
+                    "mv_name":     mv_name,
+                    "side":        side,
+                    "angle_arr":   angle_arr,
+                    "offset_val":  offset_val,
+                    "trunk_ang":   trunk_ang,
+                    "frame_rate":  frame_rate,
+                    "events":      events,
+                    "is_computed": is_computed,
+                    "c3d_path":    row_data.get("c3d_path", ""),
+                })
 
-                if is_computed and trunk_ang is not None:
-                    win = _TrunkSegmentationWindow(
-                        self,
-                        movement_name=title,
-                        angle_data=angle_arr,
-                        trunk_angles=trunk_ang,
-                        frame_rate=frame_rate,
-                        events=events,
-                    )
-                else:
-                    win = C3DSegmentationWindow(
-                        self,
-                        movement_name=title,
-                        angle_data=angle_arr,
-                        frame_rate=frame_rate,
-                        events=events,
-                    )
-                self.wait_window(win)
+        last_direction = "peak_to_valley"
+        i = 0
+        while i < len(all_items):
+            item       = all_items[i]
+            mv_name    = item["mv_name"]
+            side       = item["side"]
+            angle_arr  = item["angle_arr"]
+            offset_val = item["offset_val"]
+            trunk_ang  = item["trunk_ang"]
+            frame_rate = item["frame_rate"]
+            events     = item["events"]
+            is_computed = item["is_computed"]
+            c3d_path   = item["c3d_path"]
 
-                if win.result is not None:
-                    segs = win.result.get("segments", [])
-                    self._processed[(mv_name, side)] = {
-                        "movement":   mv_name,
-                        "side":       side,
-                        "angle_data": angle_arr,
-                        "frame_rate": frame_rate,
-                        "offset":     offset_val,
-                        "c3d_path":   row_data.get("c3d_path", ""),
-                        "extended":   compute_extended_stats_array(
-                            angle_arr, segs),
-                        **win.result,
-                    }
-                else:
-                    logger.info("Segmentation cancelled for '%s' — %s.",
-                                mv_name, side)
+            title = f"{mv_name} — {side}" if side != _NO_SIDE else mv_name
+
+            if is_computed and trunk_ang is not None:
+                win = _TrunkSegmentationWindow(
+                    self,
+                    movement_name=title,
+                    angle_data=angle_arr,
+                    trunk_angles=trunk_ang,
+                    frame_rate=frame_rate,
+                    events=events,
+                )
+            else:
+                win = C3DSegmentationWindow(
+                    self,
+                    movement_name=title,
+                    angle_data=angle_arr,
+                    frame_rate=frame_rate,
+                    events=events,
+                    show_back=(i > 0),
+                    initial_direction=last_direction,
+                )
+            self.wait_window(win)
+
+            if win.go_back:
+                i -= 1
+                prev = all_items[i]
+                self._processed.pop((prev["mv_name"], prev["side"]), None)
+                continue
+
+            last_direction = win.last_direction
+
+            if win.result is not None:
+                segs = win.result.get("segments", [])
+                self._processed[(mv_name, side)] = {
+                    "movement":   mv_name,
+                    "side":       side,
+                    "angle_data": angle_arr,
+                    "frame_rate": frame_rate,
+                    "offset":     offset_val,
+                    "c3d_path":   c3d_path,
+                    "extended":   compute_extended_stats_array(angle_arr, segs),
+                    **win.result,
+                }
+            else:
+                logger.info("Segmentation cancelled for '%s' — %s.", mv_name, side)
+
+            i += 1
 
         if not self._processed:
             messagebox.showinfo(
@@ -1074,6 +1106,23 @@ class App(ctk.CTk):
         self._layout_vertical = not self._layout_vertical
         self._show_screen_4()
 
+    @staticmethod
+    def _metric_labels_for(mv_name: str) -> list[tuple[str, str]]:
+        """Return [(display_label, metric_key), ...] for the 3 metrics of a movement."""
+        from config import MOVEMENT_DEFINITIONS
+        mv_def = MOVEMENT_DEFINITIONS.get(mv_name, {})
+        if "peak_label_key" in mv_def:
+            peak_label   = f"{t(mv_def['peak_label_key'])} ({t('lbl_maximum')})"
+            valley_label = f"{t(mv_def['valley_label_key'])} ({t('lbl_minimum')})"
+        else:
+            peak_label   = t("s4_metric_peak")
+            valley_label = t("s4_metric_valley")
+        return [
+            (t("s4_metric_rom"), "rom"),
+            (peak_label,         "peak"),
+            (valley_label,       "valley"),
+        ]
+
     def _build_movement_section(
         self,
         parent,
@@ -1124,10 +1173,11 @@ class App(ctk.CTk):
         except ImportError:
             _HAS_SCIPY = False
 
+        _ml = self._metric_labels_for(mv_name)
         METRICS = [
-            ("rom",    t("s4_metric_rom"),   "#3B82F6", "#1D4ED8"),
-            ("peak",   t("s4_metric_right"), "#22C55E", "#15803D"),
-            ("valley", t("s4_metric_left"),  "#EF4444", "#B91C1C"),
+            (_ml[0][1], _ml[0][0], "#3B82F6", "#1D4ED8"),
+            (_ml[1][1], _ml[1][0], "#22C55E", "#15803D"),
+            (_ml[2][1], _ml[2][0], "#EF4444", "#B91C1C"),
         ]
         _V_AMP, _BW, _SC_OFF, _SC_JIT = 0.30, 0.035, 0.10, 0.03
 
@@ -1226,7 +1276,12 @@ class App(ctk.CTk):
             fig = self._build_trunk_pair_chart(sides_data, mv_name)
         else:
             from plotting import plot_rom_raincloud
-            fig = plot_rom_raincloud({mv_name: sides_data}, ylabel=t("ylabel_degrees"))
+            ml = self._metric_labels_for(mv_name)
+            fig = plot_rom_raincloud(
+                {mv_name: sides_data},
+                ylabel=t("ylabel_degrees"),
+                metric_labels=[(key, lbl) for lbl, key in ml],
+            )
 
         self._charts[mv_name] = fig
         try:
@@ -1264,23 +1319,7 @@ class App(ctk.CTk):
                          anchor="w").grid(row=0, column=c, padx=2, pady=2,
                                           sticky="w")
 
-        from config import MOVEMENT_PAIR_GROUPS
-        _pair_members = {mv for members in MOVEMENT_PAIR_GROUPS.values()
-                         for mv in members}
-        _is_trunk_pair = mv_name in _pair_members
-
-        if _is_trunk_pair:
-            metric_labels = [
-                (t("s4_metric_rom"),   "rom"),
-                (t("s4_metric_right"), "peak"),
-                (t("s4_metric_left"),  "valley"),
-            ]
-        else:
-            metric_labels = [
-                (t("s4_metric_rom"),    "rom"),
-                (t("s4_metric_peak"),   "peak"),
-                (t("s4_metric_valley"), "valley"),
-            ]
+        metric_labels = self._metric_labels_for(mv_name)
 
         offset_notes: list[str] = []
         row_idx = 1
@@ -1350,11 +1389,7 @@ class App(ctk.CTk):
             extended   = data.get("extended", {})
             offset_val = data.get("offset")
 
-            for metric_key, metric_label in (
-                ("rom",    t("s4_metric_rom")),
-                ("peak",   t("s4_metric_peak")),
-                ("valley", t("s4_metric_valley")),
-            ):
+            for metric_label, metric_key in self._metric_labels_for(mv_name):
                 stats  = extended.get(metric_key, {})
                 values = stats.get("values", [])
                 m  = stats.get("mean", float("nan"))
@@ -1487,16 +1522,8 @@ class App(ctk.CTk):
         rows = []
         for (mv_name, side), data in self._processed.items():
             extended = data.get("extended", {})
-            is_bilateral = len({
-                d.get("c3d_path", "")
-                for d in [data]
-            }) == 1
             mv_label = mv_name
-            for metric_label, metric_key in (
-                (t("s4_metric_rom"),    "rom"),
-                (t("s4_metric_peak"),   "peak"),
-                (t("s4_metric_valley"), "valley"),
-            ):
+            for metric_label, metric_key in self._metric_labels_for(mv_name):
                 stats  = extended.get(metric_key, {})
                 values = stats.get("values", [])
                 m  = stats.get("mean", float("nan"))
@@ -1705,11 +1732,6 @@ class App(ctk.CTk):
         for c, h in enumerate(headers, 1):
             ws.cell(row=1, column=c, value=h).font = bold
 
-        metric_items = [
-            (t("s4_metric_rom"),    "rom"),
-            (t("s4_metric_peak"),   "peak"),
-            (t("s4_metric_valley"), "valley"),
-        ]
         row = 2
         for mv_name, sides_data in groups.items():
             is_bilateral = len({d.get("c3d_path", "") for _, d in sides_data}) == 1
@@ -1717,7 +1739,7 @@ class App(ctk.CTk):
             mv_start = row
             for side, data in sides_data:
                 extended = data.get("extended", {})
-                for metric_label, metric_key in metric_items:
+                for metric_label, metric_key in self._metric_labels_for(mv_name):
                     stats  = extended.get(metric_key, {})
                     values = stats.get("values", [])
                     mean_v = stats.get("mean", float("nan"))
@@ -2032,6 +2054,8 @@ class _TrunkSegmentationWindow(ctk.CTkToplevel):
         self._movement_name = movement_name
 
         self.result: dict | None = None
+        self.go_back: bool = False
+        self.last_direction: str = "peak_to_valley"
 
         # ── Segmentation state ────────────────────────────────────────────
         self._segments: list[tuple[int, int]] = []

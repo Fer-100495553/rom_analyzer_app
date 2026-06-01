@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
+from translations import t
 
 # Palette for repetition shading / bar colors
 _REP_COLORS = [
@@ -111,8 +112,8 @@ def plot_trunk_inclination(
     ax.plot(t, lat, linewidth=2.0, color="tab:red", zorder=2)
     ax.axhline(0.0, color="black", linewidth=0.8, linestyle="--",
                alpha=0.6, zorder=1)
-    ax.set_ylabel("Lateral Inclination (°)", fontsize=10)
-    ax.set_xlabel("Time (s)", fontsize=10)
+    ax.set_ylabel(t("plot_lateral_incl_deg"), fontsize=10)
+    ax.set_xlabel(t("col_time_s"), fontsize=10)
     ax.set_title(title, fontsize=11)
     ax.grid(True, alpha=0.3, zorder=0)
 
@@ -142,7 +143,7 @@ def plot_angle_curve(
     angle_data: np.ndarray,
     frame_rate: int,
     title: str,
-    ylabel: str = "Angle (°)",
+    ylabel: str | None = None,
     use_time: bool = True,
 ) -> Figure:
     """
@@ -161,14 +162,14 @@ def plot_angle_curve(
     n = len(angle_data)
     if use_time:
         x = np.arange(n) / frame_rate
-        xlabel = "Time (s)"
+        xlabel = t("col_time_s")
     else:
         x = np.arange(n)
-        xlabel = "Frame"
+        xlabel = t("frame")
 
     ax.plot(x, angle_data, linewidth=1.2, color="#4A90D9", zorder=2)
     ax.set_xlabel(xlabel, fontsize=10)
-    ax.set_ylabel(ylabel, fontsize=10)
+    ax.set_ylabel(ylabel if ylabel is not None else t("angle_deg"), fontsize=10)
     ax.set_title(title, fontsize=11)
     ax.grid(True, alpha=0.3, zorder=0)
     return fig
@@ -204,7 +205,7 @@ def plot_segmented_curve(
     n = len(angle_data)
     scale = 1.0 / frame_rate if use_time else 1.0
     x = np.arange(n) * scale
-    xlabel = "Time (s)" if use_time else "Frame"
+    xlabel = t("col_time_s") if use_time else t("frame")
 
     ax.plot(x, angle_data, linewidth=1.2, color="#4A90D9", zorder=2)
 
@@ -224,16 +225,16 @@ def plot_segmented_curve(
 
     if peaks is not None and len(peaks):
         ax.plot(peaks * scale, angle_data[peaks], "v",
-                color="#E05252", ms=5, zorder=5, label="Peaks")
+                color="#E05252", ms=5, zorder=5, label=t("plot_peaks"))
     if valleys is not None and len(valleys):
         ax.plot(valleys * scale, angle_data[valleys], "^",
-                color="#2D7A2D", ms=5, zorder=5, label="Valleys")
+                color="#2D7A2D", ms=5, zorder=5, label=t("plot_valleys"))
 
     if (peaks is not None and len(peaks)) or (valleys is not None and len(valleys)):
         ax.legend(fontsize=8, loc="upper right")
 
     ax.set_xlabel(xlabel, fontsize=10)
-    ax.set_ylabel("Angle (°)", fontsize=10)
+    ax.set_ylabel(t("angle_deg"), fontsize=10)
     ax.set_title(title, fontsize=11)
     ax.grid(True, alpha=0.3, zorder=0)
     return fig
@@ -289,8 +290,8 @@ def plot_rom_summary(
 
     ax.set_xticks(x)
     ax.set_xticklabels(movements, rotation=18, ha="right", fontsize=9)
-    ax.set_ylabel("ROM (°)", fontsize=10)
-    ax.set_title("Range of Motion — Mean ± SD", fontsize=11)
+    ax.set_ylabel(t("ylabel_degrees"), fontsize=10)
+    ax.set_title(t("plot_rom_mean_sd_title"), fontsize=11)
     ax.grid(True, axis="y", alpha=0.3, zorder=0)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -304,24 +305,29 @@ def plot_rom_raincloud(
     movements_data: dict,
     ax=None,
     ylabel: str = "°",
+    metric_labels: list[tuple[str, str]] | None = None,
 ) -> Figure:
     """
     Three vertical raincloud subplots side-by-side, one per metric
-    (ROM / Máximo / Mínimo), each with its own Y scale.
+    (ROM / peak / valley), each with its own Y scale.
 
     Args:
         movements_data: {mv_name: [(side, data_dict), ...]}
             data_dict["extended"][metric]["values"] → list[float] per repetition.
         ax: ignored — always creates a new Figure with 3 subplots.
+        metric_labels: [(metric_key, display_label), ...] for the 3 subplots.
+            Defaults to generic ROM/Peak/Valley translated labels.
     """
     from scipy.stats import gaussian_kde
     from matplotlib.patches import Rectangle, Patch
 
-    METRICS = [
-        ("rom",    "ROM"),
-        ("peak",   "Máximo"),
-        ("valley", "Mínimo"),
-    ]
+    if metric_labels is None:
+        metric_labels = [
+            ("rom",    t("s4_metric_rom")),
+            ("peak",   t("s4_metric_peak")),
+            ("valley", t("s4_metric_valley")),
+        ]
+    METRICS = metric_labels
 
     _COLOR      = {"Left": "#E74C3C", "Right": "#2ECC71"}
     _COLOR_DARK = {"Left": "#922B21", "Right": "#1A7A3C"}

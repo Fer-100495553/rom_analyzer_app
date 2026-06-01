@@ -160,6 +160,25 @@ _STRINGS: dict[str, dict[str, str]] = {
     "s4_metric_valley": {"en": "Valley", "es": "Mínimo"},
     "s4_metric_left":   {"en": "Left",   "es": "Izquierda"},
     "s4_metric_right":  {"en": "Right",  "es": "Derecha"},
+    # ── Plot axis / legend strings ────────────────────────────────────────────
+    "plot_peaks":            {"en": "Peaks",                      "es": "Picos"},
+    "plot_valleys":          {"en": "Valleys",                    "es": "Valles"},
+    "plot_rom_mean_sd_title": {
+        "en": "Range of Motion — Mean ± SD",
+        "es": "Rango de Movimiento — Media ± DE",
+    },
+    "plot_lateral_incl_deg": {"en": "Lateral Inclination (°)", "es": "Inclinación Lateral (°)"},
+    # ── Movement-specific peak / valley labels ────────────────────────────────
+    "mv_peak_flexion":     {"en": "Flexion",       "es": "Flexión"},
+    "mv_valley_extension": {"en": "Extension",     "es": "Extensión"},
+    "mv_peak_abduction":   {"en": "Abduction",     "es": "Abducción"},
+    "mv_valley_adduction": {"en": "Adduction",     "es": "Aducción"},
+    "mv_peak_int_rot":     {"en": "Int. Rotation", "es": "Rot. Interna"},
+    "mv_valley_ext_rot":   {"en": "Ext. Rotation", "es": "Rot. Externa"},
+    "mv_peak_left":        {"en": "Left",          "es": "Izquierda"},
+    "mv_valley_right":     {"en": "Right",         "es": "Derecha"},
+    "lbl_maximum":         {"en": "maximum",       "es": "máximo"},
+    "lbl_minimum":         {"en": "minimum",       "es": "mínimo"},
     "s4_offset_note_prefix": {
         "en": "* Offset correction applied (neutral position calibration): ",
         "es": "* Corrección de offset aplicada (calibración de posición neutral): ",
@@ -228,6 +247,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     "seg_mode_events": {"en": "From Events", "es": "Desde Eventos"},
     "seg_no_segments": {"en": "No segments yet.", "es": "Sin segmentos aún."},
     "seg_accept": {"en": "Accept & Continue", "es": "Aceptar y Continuar"},
+    "seg_back":   {"en": "← Back", "es": "← Atrás"},
     "seg_cancel": {"en": "Cancel", "es": "Cancelar"},
     "seg_reset": {"en": "Reset", "es": "Reiniciar"},
     "seg_prominence": {"en": "Prominence (°):", "es": "Prominencia (°):"},

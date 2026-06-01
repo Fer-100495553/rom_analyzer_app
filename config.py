@@ -14,6 +14,8 @@ MOVEMENT_DEFINITIONS: dict[str, dict] = {
         "description": "Shoulder flexion/extension (ZXY Rotation 1)",
         "has_side_prefix": True,
         "display_name_key": "mv_shoulder_flex_ext",
+        "peak_label_key":   "mv_peak_flexion",
+        "valley_label_key": "mv_valley_extension",
     },
     "Shoulder Abd/Add": {
         "sulm_variable": "Humerothoracic_XZY_Op1",
@@ -21,6 +23,8 @@ MOVEMENT_DEFINITIONS: dict[str, dict] = {
         "description": "Shoulder abduction/adduction (XZY Rotation 1)",
         "has_side_prefix": True,
         "display_name_key": "mv_shoulder_abd_add",
+        "peak_label_key":   "mv_peak_abduction",
+        "valley_label_key": "mv_valley_adduction",
     },
     "Shoulder Int/Ext Rot": {
         "sulm_variable": "Humerothoracic_ZXY_Op1",
@@ -28,6 +32,8 @@ MOVEMENT_DEFINITIONS: dict[str, dict] = {
         "description": "Shoulder internal/external rotation (ZXY Rotation 3)",
         "has_side_prefix": True,
         "display_name_key": "mv_shoulder_int_ext_rot",
+        "peak_label_key":   "mv_peak_int_rot",
+        "valley_label_key": "mv_valley_ext_rot",
     },
     "Elbow Flex/Ext": {
         "sulm_variable": "Elbow_Op1",
@@ -35,6 +41,8 @@ MOVEMENT_DEFINITIONS: dict[str, dict] = {
         "description": "Elbow flexion/extension (Rotation 1)",
         "has_side_prefix": True,
         "display_name_key": "mv_elbow_flex_ext",
+        "peak_label_key":   "mv_peak_flexion",
+        "valley_label_key": "mv_valley_extension",
     },
     "Thorax Lateral Inclination": {
         "type": "computed_pair",
@@ -50,6 +58,8 @@ MOVEMENT_DEFINITIONS: dict[str, dict] = {
         "component": None,
         "description": "Thorax lateral inclination (Euclidean norm of ThoraxAngles X+Y, signed via Trunk Inclination Angle Z)",
         "display_name_key": "mv_thorax_lat_incl",
+        "peak_label_key":   "mv_peak_left",
+        "valley_label_key": "mv_valley_right",
     },
     "Trunk Extended Lateral Inclination": {
         "type": "computed_pair",
@@ -65,6 +75,8 @@ MOVEMENT_DEFINITIONS: dict[str, dict] = {
         "component": None,
         "description": "Trunk extended lateral inclination from Trunk_Inclination_Angle Z component",
         "display_name_key": "mv_trunk_ext_lat_incl",
+        "peak_label_key":   "mv_peak_left",
+        "valley_label_key": "mv_valley_right",
     },
 }
 

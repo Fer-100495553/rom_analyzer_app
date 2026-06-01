@@ -193,6 +193,8 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         frame_rate: int,
         events: list[dict] | None = None,
         on_accept: Callable[[dict], None] | None = None,
+        show_back: bool = False,
+        initial_direction: str = "peak_to_valley",
     ) -> None:
         super().__init__(parent)
         self.title(f"{t('seg_window_title')} — {movement_name}")
@@ -206,9 +208,15 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         self._frame_rate = frame_rate
         self._events = events or []
         self._on_accept = on_accept
+        self._show_back = show_back
+        self._initial_direction = initial_direction
 
         # Public result
         self.result: dict | None = None
+
+        # Public back-navigation state
+        self.go_back: bool = False
+        self.last_direction: str = initial_direction
 
         # Mode
         self._mode_var = ctk.StringVar(value="auto")
@@ -307,6 +315,11 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
             btn_bar, text=t("seg_reset"), width=90,
             command=self._reset,
         ).pack(side="left", padx=8, pady=6)
+        if self._show_back:
+            ctk.CTkButton(
+                btn_bar, text=t("seg_back"), width=90,
+                command=self._go_back,
+            ).pack(side="left", pady=6)
 
         self._draw_base_curve()
 
@@ -346,7 +359,7 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         row_dir = ctk.CTkFrame(f, fg_color="transparent")
         row_dir.pack(fill="x", padx=6, pady=(2, 0))
         ctk.CTkLabel(row_dir, text=t("seg_halfcycle_direction"), width=90).pack(side="left")
-        self._halfcycle_dir_var = ctk.StringVar(value="peak_to_valley")
+        self._halfcycle_dir_var = ctk.StringVar(value=self._initial_direction)
         for _lbl, _val in [
             (t("seg_half_peak_to_valley"), "peak_to_valley"),
             (t("seg_half_valley_to_peak"), "valley_to_peak"),
@@ -445,8 +458,8 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         time_arr = np.arange(n) / self._frame_rate
         self.ax.plot(time_arr, self._angle_data,
                      linewidth=1.2, color="#4A90D9", zorder=2)
-        self.ax.set_xlabel("Time (s)", fontsize=10)
-        self.ax.set_ylabel("Angle (°)", fontsize=10)
+        self.ax.set_xlabel(t("col_time_s"), fontsize=10)
+        self.ax.set_ylabel(t("angle_deg"), fontsize=10)
         self.ax.set_title(self._movement_name, fontsize=11)
         self.ax.grid(True, alpha=0.3, zorder=0)
         self._canvas.draw_idle()
@@ -480,11 +493,11 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         if peaks is not None and peaks.size:
             tp = peaks / self._frame_rate
             self.ax.plot(tp, self._angle_data[peaks], "v", color="#E05252",
-                         ms=6, zorder=5, label="peaks")
+                         ms=6, zorder=5, label=t("plot_peaks"))
         if valleys is not None and valleys.size:
             tv = valleys / self._frame_rate
             self.ax.plot(tv, self._angle_data[valleys], "^", color="#2D7A2D",
-                         ms=6, zorder=5, label="valleys")
+                         ms=6, zorder=5, label=t("plot_valleys"))
 
         self._canvas.draw_idle()
         self._draw_peak_valley_markers()
@@ -773,6 +786,12 @@ class C3DSegmentationWindow(ctk.CTkToplevel):
         if self._on_accept:
             self._on_accept(self.result)
 
+        self.last_direction = self._halfcycle_dir_var.get()
+        self.destroy()
+
+    def _go_back(self) -> None:
+        self.last_direction = self._halfcycle_dir_var.get()
+        self.go_back = True
         self.destroy()
 
     def _reset_selection(self) -> None:
@@ -882,7 +901,7 @@ class SegmentationWindow(ctk.CTkToplevel):
         self.ax.plot(self.df[x_col], self.df[y_col],
                      linewidth=1.3, color="#4A90D9", zorder=2)
         self.ax.set_xlabel(x_col, fontsize=10)
-        self.ax.set_ylabel("Angle (°)", fontsize=10)
+        self.ax.set_ylabel(t("angle_deg"), fontsize=10)
         self.ax.set_title(self.movement_name, fontsize=11, pad=8)
         self.ax.grid(True, alpha=0.3, zorder=1)
         self.canvas.draw_idle()
