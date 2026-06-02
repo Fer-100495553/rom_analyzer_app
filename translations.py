@@ -440,6 +440,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Degrees (°)",
         "es": "Grados (°)",
     },
+    "side_left":  {"en": "Left",  "es": "Izquierda"},
+    "side_right": {"en": "Right", "es": "Derecha"},
 }
 
 

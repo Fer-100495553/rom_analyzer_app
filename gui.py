@@ -1131,25 +1131,28 @@ class App(ctk.CTk):
         bg_alt: str,
     ) -> None:
         section = ctk.CTkFrame(parent)
-        section.pack(fill="x", padx=4, pady=(0, 10))
+        section.pack(fill="x", padx=4, pady=(0, 20))
 
         ctk.CTkLabel(
             section, text=_display_name(mv_name),
-            font=ctk.CTkFont(size=13, weight="bold"),
-        ).pack(anchor="w", padx=12, pady=(8, 4))
-
-        content = ctk.CTkFrame(section, fg_color="transparent")
-        content.pack(fill="x", padx=8, pady=(0, 8))
+            font=ctk.CTkFont(size=15, weight="bold"),
+        ).pack(anchor="w", padx=12, pady=(10, 6))
 
         if self._layout_vertical:
-            chart_frame = ctk.CTkFrame(content, fg_color="transparent")
-            chart_frame.pack(fill="x", pady=(0, 4))
-            self._build_movement_chart(chart_frame, sides_data, mv_name)
+            content = ctk.CTkFrame(section, fg_color="transparent")
+            content.pack(fill="x", padx=8, pady=(0, 8))
 
             tbl_frame = ctk.CTkFrame(content, fg_color="transparent")
-            tbl_frame.pack(fill="x")
+            tbl_frame.pack(fill="x", pady=(0, 20))
             self._build_movement_table(tbl_frame, sides_data, bg_alt, mv_name)
+
+            chart_frame = ctk.CTkFrame(content, fg_color="transparent")
+            chart_frame.pack(fill="x")
+            self._build_movement_chart(chart_frame, sides_data, mv_name)
         else:
+            content = ctk.CTkFrame(section, fg_color="transparent")
+            content.pack(fill="x", padx=8, pady=(0, 8))
+
             tbl_frame = ctk.CTkFrame(content, fg_color="transparent")
             tbl_frame.pack(side="left", fill="both", expand=True, padx=(0, 4))
             self._build_movement_table(tbl_frame, sides_data, bg_alt, mv_name)
@@ -1157,6 +1160,8 @@ class App(ctk.CTk):
             chart_frame = ctk.CTkFrame(content, fg_color="transparent")
             chart_frame.pack(side="left", fill="both", expand=True)
             self._build_movement_chart(chart_frame, sides_data, mv_name)
+
+        self._build_movement_angle_plot(section, mv_name, sides_data)
 
     def _build_trunk_pair_chart(
         self,
@@ -1308,16 +1313,19 @@ class App(ctk.CTk):
             t("s4_hdr_n"), t("s4_hdr_mean"), t("s4_hdr_sd"),
             t("s4_hdr_min"), t("s4_hdr_max"),
         ]
-        col_w = [58, 65, 32, 68, 56, 56, 56]
+        col_min_w = [58, 65, 32, 68, 56, 56, 56]
 
         scroll = ctk.CTkScrollableFrame(parent, height=130)
         scroll.pack(fill="both", expand=True, padx=4, pady=(0, 4))
 
-        for c, (h, w) in enumerate(zip(headers, col_w)):
-            ctk.CTkLabel(scroll, text=h, width=w,
+        for c, mw in enumerate(col_min_w):
+            scroll.grid_columnconfigure(c, weight=1, minsize=mw)
+
+        for c, h in enumerate(headers):
+            ctk.CTkLabel(scroll, text=h,
                          font=ctk.CTkFont(size=11, weight="bold"),
                          anchor="w").grid(row=0, column=c, padx=2, pady=2,
-                                          sticky="w")
+                                          sticky="ew")
 
         metric_labels = self._metric_labels_for(mv_name)
 
@@ -1354,11 +1362,12 @@ class App(ctk.CTk):
                     f"{max_v:.1f}"  if not math.isnan(max_v)  else "—",
                 ]
 
-                for c, (val, w) in enumerate(zip(row_vals, col_w)):
-                    ctk.CTkLabel(scroll, text=val, width=w,
-                                 font=ctk.CTkFont(size=11), anchor="w",
+                cell_font = ctk.CTkFont(size=11, weight="bold") if metric_key == "rom" else ctk.CTkFont(size=11)
+                for c, val in enumerate(row_vals):
+                    ctk.CTkLabel(scroll, text=val,
+                                 font=cell_font, anchor="w",
                                  fg_color=bg).grid(row=row_idx, column=c,
-                                                   padx=2, pady=1, sticky="w")
+                                                   padx=2, pady=1, sticky="ew")
                 row_idx += 1
 
         if offset_notes:
@@ -1368,6 +1377,136 @@ class App(ctk.CTk):
                          font=ctk.CTkFont(size=9), text_color="gray",
                          anchor="w", wraplength=380,
                          ).pack(fill="x", padx=4, pady=(0, 2))
+
+    def _build_movement_angle_plot(
+        self,
+        parent,
+        mv_name: str,
+        sides_data: list[tuple[str, dict]],
+    ) -> None:
+        """Angle-vs-time graph(s) shown below the table/chart for each movement.
+
+        Bilateral (both sides, same C3D): one figure, two overlaid curves.
+        Unilateral (two sides, different C3Ds): two separate figures side by
+            side — Left (red) on the left, Right (green) on the right, each
+            with its own export button.
+        Pair member or single side: one figure, one curve.
+        """
+        from matplotlib.figure import Figure
+        import numpy as np
+        from config import MOVEMENT_PAIR_GROUPS
+
+        valid = [
+            (side, d) for side, d in sides_data
+            if d.get("angle_data") is not None
+        ]
+        if not valid:
+            return
+
+        _pair_members = {mv for members in MOVEMENT_PAIR_GROUPS.values()
+                         for mv in members}
+        unique_paths = {d.get("c3d_path", "") for _, d in valid}
+        is_bilateral = (
+            len(valid) == 2
+            and len(unique_paths) == 1
+            and mv_name not in _pair_members
+        )
+        is_unilateral_two = (
+            len(valid) == 2
+            and not is_bilateral
+            and mv_name not in _pair_members
+        )
+
+        COLOR_LEFT  = "#DC2626"   # red
+        COLOR_RIGHT = "#16A34A"   # green
+        COLOR_NEUTRAL = "#4A90D9" # blue for pair / no-side movements
+
+        def _side_color(side: str) -> str:
+            if "left" in side.lower():
+                return COLOR_LEFT
+            if "right" in side.lower():
+                return COLOR_RIGHT
+            return COLOR_NEUTRAL
+
+        def _embed(fig, container, export_label: str) -> None:
+            canvas = FigureCanvasTkAgg(fig, master=container)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True)
+            ctk.CTkButton(
+                container, text=t("export_chart"), width=130,
+                command=lambda f=fig, n=export_label: self._export_chart(f, n),
+            ).pack(anchor="e", padx=4, pady=(2, 0))
+
+        def _single_ax(fig, arr, fr, color, title):
+            ax = fig.add_subplot(111)
+            ax.plot(np.arange(len(arr)) / fr, arr,
+                    linewidth=1.2, color=color, zorder=2)
+            ax.set_xlabel(t("col_time_s"), fontsize=9)
+            ax.set_ylabel(t("angle_deg"), fontsize=9)
+            ax.set_title(title, fontsize=10, fontweight="bold")
+            ax.grid(True, alpha=0.3, zorder=0)
+
+        plot_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        plot_frame.pack(fill="x", padx=8, pady=(0, 8))
+
+        try:
+            if is_bilateral:
+                fig = Figure(figsize=(10, 2.8), tight_layout=True)
+                ax = fig.add_subplot(111)
+                for side, d in valid:
+                    arr = np.asarray(d["angle_data"], dtype=float)
+                    fr = d.get("frame_rate") or 100
+                    lbl = t("side_left") if "left" in side.lower() else t("side_right")
+                    ax.plot(np.arange(len(arr)) / fr, arr,
+                            linewidth=1.2, color=_side_color(side),
+                            label=lbl, zorder=2)
+                ax.set_xlabel(t("col_time_s"), fontsize=9)
+                ax.set_ylabel(t("angle_deg"), fontsize=9)
+                ax.set_title(_display_name(mv_name), fontsize=10, fontweight="bold")
+                ax.legend(fontsize=8)
+                ax.grid(True, alpha=0.3, zorder=0)
+                _embed(fig, plot_frame, mv_name)
+
+            elif is_unilateral_two:
+                left_e  = [(s, d) for s, d in valid if "left"  in s.lower()]
+                right_e = [(s, d) for s, d in valid if "right" in s.lower()]
+                ordered = left_e + right_e
+
+                row = ctk.CTkFrame(plot_frame, fg_color="transparent")
+                row.pack(fill="x")
+
+                for side, d in ordered:
+                    col_frame = ctk.CTkFrame(row, fg_color="transparent")
+                    col_frame.pack(side="left", fill="both", expand=True,
+                                   padx=(0, 4))
+                    arr = np.asarray(d["angle_data"], dtype=float)
+                    fr = d.get("frame_rate") or 100
+                    side_lbl = (t("side_left") if "left" in side.lower()
+                                else t("side_right"))
+                    title = f"{_display_name(mv_name)} — {side_lbl}"
+                    fig = Figure(figsize=(5, 2.8), tight_layout=True)
+                    _single_ax(fig, arr, fr, _side_color(side), title)
+                    _embed(fig, col_frame, f"{mv_name}_{side}")
+
+            else:
+                side, d = valid[0]
+                arr = np.asarray(d["angle_data"], dtype=float)
+                fr = d.get("frame_rate") or 100
+                title = _display_name(mv_name)
+                if side != _NO_SIDE:
+                    side_lbl = (t("side_left") if "left" in side.lower()
+                                else t("side_right"))
+                    title = f"{title} — {side_lbl}"
+                fig = Figure(figsize=(10, 2.8), tight_layout=True)
+                _single_ax(fig, arr, fr, _side_color(side), title)
+                _embed(fig, plot_frame, f"{mv_name}_{side}")
+
+        except Exception as exc:
+            ctk.CTkLabel(
+                plot_frame,
+                text=t("s4_chart_unavailable").format(exc=exc),
+                text_color="gray",
+            ).pack(padx=8, pady=4)
 
     # ── Export ─────────────────────────────────────────────────────────────
 
