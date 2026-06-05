@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import numpy as np
 import customtkinter as ctk
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from translations import t
@@ -86,7 +86,8 @@ class IndividualReviewWindow(ctk.CTkToplevel):
         plot_frame = ctk.CTkFrame(main)
         plot_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
 
-        self._fig, self._ax = plt.subplots(figsize=(8, 4), tight_layout=True)
+        self._fig = Figure(figsize=(8, 4), tight_layout=True)
+        self._ax = self._fig.add_subplot(111)
         self._canvas = FigureCanvasTkAgg(self._fig, master=plot_frame)
         self._canvas.get_tk_widget().pack(fill="both", expand=True)
         self._draw_plot()
@@ -307,3 +308,11 @@ class IndividualReviewWindow(ctk.CTkToplevel):
         self.result = None
         self.grab_release()
         self.destroy()
+
+    def destroy(self) -> None:
+        try:
+            self._fig.clf()
+            self._canvas.get_tk_widget().destroy()
+        except Exception:
+            pass
+        super().destroy()

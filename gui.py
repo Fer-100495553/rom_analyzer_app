@@ -77,6 +77,8 @@ class App(ctk.CTk):
         self._laterality_var = ctk.StringVar(value="unilateral")
         self._recording_type_var = ctk.StringVar(value="continuous")
         self._num_reps_var = ctk.IntVar(value=6)
+        self._num_reps_left_var  = ctk.IntVar(value=6)
+        self._num_reps_right_var = ctk.IntVar(value=6)
         self._import_rows: list[dict] = []
         self._process_btn: ctk.CTkButton | None = None
         self._processed: dict[tuple[str, str], dict] = {}
@@ -295,6 +297,7 @@ class App(ctk.CTk):
             ctk.CTkRadioButton(
                 col, text=t(text_key),
                 variable=self._laterality_var, value=val,
+                command=self._on_recording_options_change,
             ).pack(anchor="w")
             ctk.CTkLabel(col, text=t(hint_key),
                          font=ctk.CTkFont(size=10), text_color="gray",
@@ -316,7 +319,7 @@ class App(ctk.CTk):
             ctk.CTkRadioButton(
                 col, text=t(text_key),
                 variable=self._recording_type_var, value=val,
-                command=self._on_recording_type_change,
+                command=self._on_recording_options_change,
             ).pack(anchor="w")
             ctk.CTkLabel(col, text=t(hint_key),
                          font=ctk.CTkFont(size=10), text_color="gray",
@@ -325,29 +328,7 @@ class App(ctk.CTk):
         self._num_reps_row = ctk.CTkFrame(card_rec, fg_color="transparent")
         self._num_reps_row.pack(anchor="w", padx=12, pady=(0, 8))
 
-        ctk.CTkLabel(
-            self._num_reps_row, text=t("s1_num_reps_label"),
-            font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=(0, 8))
-
-        ctk.CTkLabel(self._num_reps_row, text="  ", width=4).pack(side="left")
-        ctk.CTkButton(
-            self._num_reps_row, text="−", width=28, height=28,
-            command=lambda: self._num_reps_var.set(
-                max(1, self._num_reps_var.get() - 1)),
-        ).pack(side="left")
-        self._num_reps_lbl = ctk.CTkLabel(
-            self._num_reps_row, textvariable=self._num_reps_var,
-            width=32, font=ctk.CTkFont(size=13, weight="bold"),
-        )
-        self._num_reps_lbl.pack(side="left", padx=4)
-        ctk.CTkButton(
-            self._num_reps_row, text="+", width=28, height=28,
-            command=lambda: self._num_reps_var.set(
-                min(10, self._num_reps_var.get() + 1)),
-        ).pack(side="left")
-
-        self._on_recording_type_change()
+        self._on_recording_options_change()
 
         # ── D: Continue button ────────────────────────────────────────────
         ctk.CTkButton(
@@ -366,14 +347,63 @@ class App(ctk.CTk):
         for var in self._movement_vars.values():
             var.set(False)
 
-    def _on_recording_type_change(self) -> None:
+    def _on_recording_options_change(self) -> None:
         is_individual = self._recording_type_var.get() == "individual"
-        state = "normal" if is_individual else "disabled"
+        is_unilateral = self._laterality_var.get() == "unilateral"
+
         for w in self._num_reps_row.winfo_children():
-            try:
-                w.configure(state=state)
-            except Exception:
-                pass
+            w.destroy()
+
+        if not is_individual:
+            ctk.CTkLabel(
+                self._num_reps_row, text=t("s1_num_reps_label"),
+                font=ctk.CTkFont(size=11), state="disabled",
+            ).pack(side="left", padx=(0, 8))
+            return
+
+        if is_unilateral:
+            for side_key, var in [("side_left",  self._num_reps_left_var),
+                                   ("side_right", self._num_reps_right_var)]:
+                grp = ctk.CTkFrame(self._num_reps_row, fg_color="transparent")
+                grp.pack(side="left", padx=(0, 20))
+                ctk.CTkLabel(
+                    grp, text=t(side_key),
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                ).pack(anchor="w")
+                spinner = ctk.CTkFrame(grp, fg_color="transparent")
+                spinner.pack(anchor="w")
+                _v = var
+                ctk.CTkButton(
+                    spinner, text="−", width=28, height=28,
+                    command=lambda v=_v: v.set(max(1, v.get() - 1)),
+                ).pack(side="left")
+                ctk.CTkLabel(
+                    spinner, textvariable=_v,
+                    width=32, font=ctk.CTkFont(size=13, weight="bold"),
+                ).pack(side="left", padx=4)
+                ctk.CTkButton(
+                    spinner, text="+", width=28, height=28,
+                    command=lambda v=_v: v.set(min(10, v.get() + 1)),
+                ).pack(side="left")
+        else:
+            ctk.CTkLabel(
+                self._num_reps_row, text=t("s1_num_reps_label"),
+                font=ctk.CTkFont(size=11),
+            ).pack(side="left", padx=(0, 8))
+            ctk.CTkButton(
+                self._num_reps_row, text="−", width=28, height=28,
+                command=lambda: self._num_reps_var.set(
+                    max(1, self._num_reps_var.get() - 1)),
+            ).pack(side="left")
+            ctk.CTkLabel(
+                self._num_reps_row, textvariable=self._num_reps_var,
+                width=32, font=ctk.CTkFont(size=13, weight="bold"),
+            ).pack(side="left", padx=4)
+            ctk.CTkButton(
+                self._num_reps_row, text="+", width=28, height=28,
+                command=lambda: self._num_reps_var.set(
+                    min(10, self._num_reps_var.get() + 1)),
+            ).pack(side="left")
 
     def _go_to_screen_2(self) -> None:
         selected = [mv for mv, var in self._movement_vars.items() if var.get()]
@@ -399,6 +429,7 @@ class App(ctk.CTk):
 
         is_individual = self._recording_type_var.get() == "individual"
         num_reps = self._num_reps_var.get() if is_individual else 1
+        _is_unilateral_individual = is_individual and self._laterality_var.get() == "unilateral"
 
         # Save loaded states before rebuilding widgets (language re-render)
         old_state: dict[tuple, dict] = {}
@@ -543,7 +574,13 @@ class App(ctk.CTk):
                 row_specs = [("Left", False), ("Right", False)]
 
             for side_label, is_bilateral in row_specs:
-                reps_range = range(num_reps) if is_individual else range(1)
+                if _is_unilateral_individual and side_label == "Left":
+                    n = self._num_reps_left_var.get()
+                elif _is_unilateral_individual and side_label == "Right":
+                    n = self._num_reps_right_var.get()
+                else:
+                    n = num_reps
+                reps_range = range(n) if is_individual else range(1)
 
                 for rep_idx in reps_range:
                     row_frame = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -904,13 +941,14 @@ class App(ctk.CTk):
             if win.result is not None:
                 segs = win.result.get("segments", [])
                 self._processed[(mv_name, side)] = {
-                    "movement":   mv_name,
-                    "side":       side,
-                    "angle_data": angle_arr,
-                    "frame_rate": frame_rate,
-                    "offset":     offset_val,
-                    "c3d_path":   c3d_path,
-                    "extended":   compute_extended_stats_array(angle_arr, segs),
+                    "movement":        mv_name,
+                    "side":            side,
+                    "angle_data":      angle_arr,
+                    "frame_rate":      frame_rate,
+                    "offset":          offset_val,
+                    "c3d_path":        c3d_path,
+                    "recording_type":  "continuous",
+                    "extended":        compute_extended_stats_array(angle_arr, segs),
                     **win.result,
                 }
             else:
@@ -975,14 +1013,17 @@ class App(ctk.CTk):
 
                     if win.result is not None:
                         self._processed[(mv_name, actual_side)] = {
-                            "movement":   mv_name,
-                            "side":       actual_side,
-                            "angle_data": win.result["angle_data"],
-                            "frame_rate": reps[0]["frame_rate"],
-                            "offset":     win.result["offset"],
-                            "c3d_path":   reps[0].get("c3d_path", ""),
-                            "extended":   win.result["extended"],
-                            "segments":   [],
+                            "movement":        mv_name,
+                            "side":            actual_side,
+                            "angle_data":      win.result["angle_data"],
+                            "frame_rate":      reps[0]["frame_rate"],
+                            "offset":          win.result["offset"],
+                            "c3d_path":        reps[0].get("c3d_path", ""),
+                            "recording_type":  "individual",
+                            "curves_all":      curves,
+                            "excluded_idxs":   sorted(win.result.get("excluded", [])),
+                            "extended":        win.result["extended"],
+                            "segments":        [],
                         }
             else:
                 try:
@@ -1006,14 +1047,17 @@ class App(ctk.CTk):
 
                 if win.result is not None:
                     self._processed[(mv_name, side)] = {
-                        "movement":   mv_name,
-                        "side":       side,
-                        "angle_data": win.result["angle_data"],
-                        "frame_rate": reps[0]["frame_rate"],
-                        "offset":     win.result["offset"],
-                        "c3d_path":   reps[0].get("c3d_path", ""),
-                        "extended":   win.result["extended"],
-                        "segments":   [],
+                        "movement":        mv_name,
+                        "side":            side,
+                        "angle_data":      win.result["angle_data"],
+                        "frame_rate":      reps[0]["frame_rate"],
+                        "offset":          win.result["offset"],
+                        "c3d_path":        reps[0].get("c3d_path", ""),
+                        "recording_type":  "individual",
+                        "curves_all":      curves,
+                        "excluded_idxs":   sorted(win.result.get("excluded", [])),
+                        "extended":        win.result["extended"],
+                        "segments":        [],
                     }
 
         if not self._processed:
@@ -1384,17 +1428,25 @@ class App(ctk.CTk):
         mv_name: str,
         sides_data: list[tuple[str, dict]],
     ) -> None:
-        """Angle-vs-time graph(s) shown below the table/chart for each movement.
+        """Selected-repetition visualization below the table/chart.
 
-        Bilateral (both sides, same C3D): one figure, two overlaid curves.
-        Unilateral (two sides, different C3Ds): two separate figures side by
-            side — Left (red) on the left, Right (green) on the right, each
-            with its own export button.
-        Pair member or single side: one figure, one curve.
+        Continuous recordings: full curve with each accepted segment shaded
+        (colored band + R-label + per-segment peak/valley markers), one
+        subplot per side side-by-side.
+        Individual recordings: superimposed active (non-excluded) curves with
+        peak/valley markers, one subplot per side side-by-side.
         """
         from matplotlib.figure import Figure
         import numpy as np
-        from config import MOVEMENT_PAIR_GROUPS
+
+        _REP_COLORS = [
+            "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4",
+            "#FFEAA7", "#DDA0DD", "#98D8C8",
+        ]
+        _IND_COLORS = [
+            "#4C9BE8", "#E8734C", "#4CE87A", "#E8D44C", "#C44CE8",
+            "#4CE8D4", "#E84C6E", "#8EE84C", "#E8974C", "#4C6EE8",
+        ]
 
         valid = [
             (side, d) for side, d in sides_data
@@ -1403,30 +1455,7 @@ class App(ctk.CTk):
         if not valid:
             return
 
-        _pair_members = {mv for members in MOVEMENT_PAIR_GROUPS.values()
-                         for mv in members}
-        unique_paths = {d.get("c3d_path", "") for _, d in valid}
-        is_bilateral = (
-            len(valid) == 2
-            and len(unique_paths) == 1
-            and mv_name not in _pair_members
-        )
-        is_unilateral_two = (
-            len(valid) == 2
-            and not is_bilateral
-            and mv_name not in _pair_members
-        )
-
-        COLOR_LEFT  = "#DC2626"   # red
-        COLOR_RIGHT = "#16A34A"   # green
-        COLOR_NEUTRAL = "#4A90D9" # blue for pair / no-side movements
-
-        def _side_color(side: str) -> str:
-            if "left" in side.lower():
-                return COLOR_LEFT
-            if "right" in side.lower():
-                return COLOR_RIGHT
-            return COLOR_NEUTRAL
+        recording_type = valid[0][1].get("recording_type", "continuous")
 
         def _embed(fig, container, export_label: str) -> None:
             canvas = FigureCanvasTkAgg(fig, master=container)
@@ -1437,69 +1466,160 @@ class App(ctk.CTk):
                 command=lambda f=fig, n=export_label: self._export_chart(f, n),
             ).pack(anchor="e", padx=4, pady=(2, 0))
 
-        def _single_ax(fig, arr, fr, color, title):
-            ax = fig.add_subplot(111)
-            ax.plot(np.arange(len(arr)) / fr, arr,
-                    linewidth=1.2, color=color, zorder=2)
-            ax.set_xlabel(t("col_time_s"), fontsize=9)
-            ax.set_ylabel(t("angle_deg"), fontsize=9)
-            ax.set_title(title, fontsize=10, fontweight="bold")
-            ax.grid(True, alpha=0.3, zorder=0)
-
         plot_frame = ctk.CTkFrame(parent, fg_color="transparent")
         plot_frame.pack(fill="x", padx=8, pady=(0, 8))
 
+        left_e  = [(s, d) for s, d in valid if "left"  in s.lower()]
+        right_e = [(s, d) for s, d in valid if "right" in s.lower()]
+        other_e = [(s, d) for s, d in valid
+                   if "left" not in s.lower() and "right" not in s.lower()]
+        ordered = left_e + right_e + other_e
+
+        n_plots = len(ordered)
+        figw = 5.0 if n_plots > 1 else 10.0
+
+        if n_plots > 1:
+            row_frame = ctk.CTkFrame(plot_frame, fg_color="transparent")
+            row_frame.pack(fill="x")
+        else:
+            row_frame = plot_frame
+
         try:
-            if is_bilateral:
-                fig = Figure(figsize=(10, 2.8), tight_layout=True)
-                ax = fig.add_subplot(111)
-                for side, d in valid:
-                    arr = np.asarray(d["angle_data"], dtype=float)
-                    fr = d.get("frame_rate") or 100
-                    lbl = t("side_left") if "left" in side.lower() else t("side_right")
-                    ax.plot(np.arange(len(arr)) / fr, arr,
-                            linewidth=1.2, color=_side_color(side),
-                            label=lbl, zorder=2)
-                ax.set_xlabel(t("col_time_s"), fontsize=9)
-                ax.set_ylabel(t("angle_deg"), fontsize=9)
-                ax.set_title(_display_name(mv_name), fontsize=10, fontweight="bold")
-                ax.legend(fontsize=8)
-                ax.grid(True, alpha=0.3, zorder=0)
-                _embed(fig, plot_frame, mv_name)
-
-            elif is_unilateral_two:
-                left_e  = [(s, d) for s, d in valid if "left"  in s.lower()]
-                right_e = [(s, d) for s, d in valid if "right" in s.lower()]
-                ordered = left_e + right_e
-
-                row = ctk.CTkFrame(plot_frame, fg_color="transparent")
-                row.pack(fill="x")
-
-                for side, d in ordered:
-                    col_frame = ctk.CTkFrame(row, fg_color="transparent")
-                    col_frame.pack(side="left", fill="both", expand=True,
+            for side, d in ordered:
+                if n_plots > 1:
+                    container = ctk.CTkFrame(row_frame, fg_color="transparent")
+                    container.pack(side="left", fill="both", expand=True,
                                    padx=(0, 4))
-                    arr = np.asarray(d["angle_data"], dtype=float)
-                    fr = d.get("frame_rate") or 100
-                    side_lbl = (t("side_left") if "left" in side.lower()
-                                else t("side_right"))
-                    title = f"{_display_name(mv_name)} — {side_lbl}"
-                    fig = Figure(figsize=(5, 2.8), tight_layout=True)
-                    _single_ax(fig, arr, fr, _side_color(side), title)
-                    _embed(fig, col_frame, f"{mv_name}_{side}")
+                else:
+                    container = row_frame
 
-            else:
-                side, d = valid[0]
-                arr = np.asarray(d["angle_data"], dtype=float)
-                fr = d.get("frame_rate") or 100
-                title = _display_name(mv_name)
-                if side != _NO_SIDE:
-                    side_lbl = (t("side_left") if "left" in side.lower()
-                                else t("side_right"))
-                    title = f"{title} — {side_lbl}"
-                fig = Figure(figsize=(10, 2.8), tight_layout=True)
-                _single_ax(fig, arr, fr, _side_color(side), title)
-                _embed(fig, plot_frame, f"{mv_name}_{side}")
+                side_lbl = (t("side_left")  if "left"  in side.lower() else
+                            t("side_right") if "right" in side.lower() else side)
+                title = (f"{_display_name(mv_name)} — {side_lbl}"
+                         if side != _NO_SIDE else _display_name(mv_name))
+
+                if recording_type == "continuous":
+                    angle_arr = np.asarray(d["angle_data"], dtype=float)
+                    fr = d.get("frame_rate") or 100
+                    segments = d.get("segments", [])
+                    rom_vals = d.get("extended", {}).get("rom", {}).get("values", [])
+
+                    fig = Figure(figsize=(figw, 2.8), tight_layout=True)
+                    ax = fig.add_subplot(111)
+                    time_arr = np.arange(len(angle_arr)) / fr
+                    ax.plot(time_arr, angle_arr,
+                            linewidth=1.2, color="#4A90D9", zorder=2)
+
+                    for i, (s, e) in enumerate(segments):
+                        color = _REP_COLORS[i % len(_REP_COLORS)]
+                        ts, te = s / fr, e / fr
+                        ax.axvspan(ts, te, alpha=0.22, color=color, zorder=1)
+                        # Rep number at the top of the band
+                        ax.text(
+                            (ts + te) / 2, 0.97, f"R{i+1}",
+                            fontsize=7, ha="center", va="top",
+                            transform=ax.get_xaxis_transform(), color=color,
+                        )
+                        # ROM value at mid-height to avoid overlap with peak labels
+                        if i < len(rom_vals) and not np.isnan(float(rom_vals[i])):
+                            ax.text(
+                                (ts + te) / 2, 0.50, f"{rom_vals[i]:.1f}°",
+                                fontsize=7, ha="center", va="center",
+                                transform=ax.get_xaxis_transform(), color=color,
+                                fontweight="bold",
+                            )
+                        s_c = max(0, s)
+                        e_c = min(len(angle_arr) - 1, e)
+                        chunk = angle_arr[s_c:e_c + 1]
+                        if np.any(~np.isnan(chunk)):
+                            pk_local = int(np.nanargmax(chunk))
+                            vl_local = int(np.nanargmin(chunk))
+                            pk_f = s_c + pk_local
+                            vl_f = s_c + vl_local
+                            pk_v = float(chunk[pk_local])
+                            vl_v = float(chunk[vl_local])
+                            ax.plot(pk_f / fr, pk_v, marker="^",
+                                    color="#E05252", markersize=6,
+                                    zorder=6, linestyle="None")
+                            ax.annotate(
+                                f"{pk_v:.1f}°", xy=(pk_f / fr, pk_v),
+                                xytext=(4, 4), textcoords="offset points",
+                                fontsize=7, color="#E05252", zorder=6,
+                            )
+                            ax.plot(vl_f / fr, vl_v, marker="v",
+                                    color="#4C9BE8", markersize=6,
+                                    zorder=6, linestyle="None")
+                            ax.annotate(
+                                f"{vl_v:.1f}°", xy=(vl_f / fr, vl_v),
+                                xytext=(4, -10), textcoords="offset points",
+                                fontsize=7, color="#4C9BE8", zorder=6,
+                            )
+
+                    ax.set_xlabel(t("col_time_s"), fontsize=9)
+                    ax.set_ylabel(t("angle_deg"), fontsize=9)
+                    ax.set_title(title, fontsize=10, fontweight="bold")
+                    ax.grid(True, alpha=0.3, zorder=0)
+                    # Expand top margin so peak annotations don't overflow the frame
+                    y_lo, y_hi = ax.get_ylim()
+                    y_range = y_hi - y_lo
+                    ax.set_ylim(y_lo - 0.05 * y_range, y_hi + 0.20 * y_range)
+
+                else:  # individual
+                    curves_all = d.get("curves_all", [])
+                    excluded = set(d.get("excluded_idxs", []))
+
+                    fig = Figure(figsize=(figw, 2.8), tight_layout=True)
+                    ax = fig.add_subplot(111)
+
+                    if not curves_all:
+                        arr = np.asarray(d["angle_data"], dtype=float)
+                        ax.plot(np.arange(len(arr)), arr,
+                                linewidth=1.5, color=_IND_COLORS[0], zorder=2)
+                    else:
+                        active_plotted = 0
+                        for i, curve in enumerate(curves_all):
+                            if i in excluded:
+                                continue
+                            color = _IND_COLORS[active_plotted % len(_IND_COLORS)]
+                            arr = np.asarray(curve, dtype=float)
+                            ax.plot(np.arange(len(arr)), arr,
+                                    color=color, alpha=0.9, linewidth=1.5,
+                                    label=f"R{i+1}", zorder=2)
+                            if np.any(~np.isnan(arr)):
+                                pk_idx = int(np.nanargmax(arr))
+                                vl_idx = int(np.nanargmin(arr))
+                                pk_v = float(arr[pk_idx])
+                                vl_v = float(arr[vl_idx])
+                                ax.plot(pk_idx, pk_v, marker="^",
+                                        color="red", markersize=6,
+                                        zorder=5, linestyle="None")
+                                ax.annotate(
+                                    f"{pk_v:.1f}°", xy=(pk_idx, pk_v),
+                                    xytext=(4, 4), textcoords="offset points",
+                                    fontsize=7, color="red",
+                                )
+                                ax.plot(vl_idx, vl_v, marker="v",
+                                        color="#4C9BE8", markersize=6,
+                                        zorder=5, linestyle="None")
+                                ax.annotate(
+                                    f"{vl_v:.1f}°", xy=(vl_idx, vl_v),
+                                    xytext=(4, -10), textcoords="offset points",
+                                    fontsize=7, color="#4C9BE8",
+                                )
+                            active_plotted += 1
+                        if active_plotted > 1:
+                            ax.legend(fontsize=8, loc="upper right")
+
+                    ax.set_xlabel("Frame", fontsize=9)
+                    ax.set_ylabel(t("angle_deg"), fontsize=9)
+                    ax.set_title(title, fontsize=10, fontweight="bold")
+                    ax.grid(True, alpha=0.3, zorder=0)
+                    # Expand top margin so peak annotations don't overflow the frame
+                    y_lo, y_hi = ax.get_ylim()
+                    y_range = y_hi - y_lo
+                    ax.set_ylim(y_lo - 0.05 * y_range, y_hi + 0.20 * y_range)
+
+                _embed(fig, container, f"{mv_name}_{side}")
 
         except Exception as exc:
             ctk.CTkLabel(
@@ -2143,6 +2263,8 @@ class App(ctk.CTk):
         self._laterality_var.set("unilateral")
         self._recording_type_var.set("continuous")
         self._num_reps_var.set(6)
+        self._num_reps_left_var.set(6)
+        self._num_reps_right_var.set(6)
         self._layout_vertical = True
         self._show_screen_1()
 
