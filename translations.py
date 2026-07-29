@@ -9,8 +9,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "es": "ROM Analyzer — Vicon Nexus",
     },
     "app_subtitle": {
-        "en": "Vicon Nexus  ·  Range of Motion Analysis",
-        "es": "Vicon Nexus  ·  Análisis de Rango de Movimiento",
+        "en": "Range of Motion Analysis",
+        "es": "Análisis de Rango de Movimiento",
     },
     # ── Settings dialog ───────────────────────────────────────────────────
     "settings_title": {"en": "Settings", "es": "Ajustes"},
@@ -20,6 +20,35 @@ _STRINGS: dict[str, dict[str, str]] = {
     "settings_theme_dark": {"en": "Dark", "es": "Oscuro"},
     "settings_theme_light": {"en": "Light", "es": "Claro"},
     "settings_close": {"en": "Close", "es": "Cerrar"},
+    "settings_about": {"en": "About", "es": "Acerca de"},
+    # ── About dialog ──────────────────────────────────────────────────────
+    "about_title":       {"en": "About",        "es": "Acerca de"},
+    "about_author":           {"en": "Author",        "es": "Autor"},
+    "about_university":       {"en": "University",    "es": "Universidad"},
+    "about_institution":      {"en": "Institution",   "es": "Institución"},
+    "about_unit":             {"en": "Unit",          "es": "Unidad"},
+    "about_year":             {"en": "Year",          "es": "Año"},
+    "about_license":          {"en": "License",       "es": "Licencia"},
+    "about_university_value": {
+        "en": "University Carlos III of Madrid (UC3M)",
+        "es": "Universidad Carlos III de Madrid (UC3M)",
+    },
+    "about_institution_value": {
+        "en": "National Hospital for Paraplegics (HNP)",
+        "es": "Hospital Nacional de Parapléjicos (HNP)",
+    },
+    "about_unit_value": {
+        "en": "Biomechanics and Assistive Technology Unit",
+        "es": "Unidad de Biomecánica y Ayudas Técnicas",
+    },
+    "about_license_value": {
+        "en": "MIT License",
+        "es": "Licencia MIT",
+    },
+    "about_tfg": {
+        "en": "Final Degree Project: Analysis and Detection of Maximum ROM of the Upper Limb\nUsing Photogrammetry (Vicon Nexus) in Patients with SCI",
+        "es": "Trabajo de Fin de Grado: Análisis y Detección del ROM Máximo del Miembro Superior\nmediante Fotogrametría (Vicon Nexus) en Pacientes con Lesión Medular",
+    },
     # ── Screen 1 ──────────────────────────────────────────────────────────
     "s1_card_movements": {
         "en": "SELECT MOVEMENTS TO ANALYZE",

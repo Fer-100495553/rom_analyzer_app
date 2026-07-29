@@ -3,9 +3,13 @@ data_c3d/
 __pycache__/
 *.pyc
 dist/
+dist_test/
 build/
 *.spec
 *.exe
 .env
 desktop.ini
 .settings.json
+nuitka-crash-report.xml
+installer/output/
+.claude/

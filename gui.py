@@ -8,10 +8,13 @@ import customtkinter as ctk
 import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from PIL import Image
 from tkinter import filedialog, messagebox
 
 import settings_manager
 from translations import t
+
+_ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +67,11 @@ class App(ctk.CTk):
 
     def __init__(self) -> None:
         super().__init__()
-        self.title(t("app_title"))
+        self.title("ROM ANALYZER")
         self.geometry("800x740")
         self.resizable(True, True)
         self.state("zoomed")
+        self.iconbitmap(os.path.join(_ASSETS_DIR, "logo.ico"))
         self.bind("<F11>", lambda e: self.attributes("-fullscreen",
                                                      not self.attributes("-fullscreen")))
         self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
@@ -97,23 +101,29 @@ class App(ctk.CTk):
         _hdr.grid_columnconfigure(2, weight=1)   # right area (settings btn)
 
         self._title_lbl = ctk.CTkLabel(
-            _hdr, text=t("app_title"),
-            font=ctk.CTkFont(size=26, weight="bold"),
+            _hdr, text=t("app_title").upper(),
+            font=ctk.CTkFont(family="Century Gothic", size=30, weight="bold"),
         )
         self._title_lbl.grid(row=0, column=0, columnspan=3, pady=(0, 2))
 
         self._subtitle_lbl = ctk.CTkLabel(
             _hdr, text=t("app_subtitle"), text_color="gray",
+            font=ctk.CTkFont(family="Century Gothic", size=18),
         )
         self._subtitle_lbl.grid(row=1, column=0, columnspan=3)
 
         # Settings button — top-right corner of the header
         _right_frame = ctk.CTkFrame(_hdr, fg_color="transparent")
         _right_frame.grid(row=0, column=2, rowspan=2, sticky="ne", pady=4)
+        _icon_size = (128, 128)
+        _gear_img = ctk.CTkImage(
+            light_image=Image.open(os.path.join(_ASSETS_DIR, "light.png")).resize(_icon_size, Image.LANCZOS),
+            dark_image=Image.open(os.path.join(_ASSETS_DIR, "dark.png")).resize(_icon_size, Image.LANCZOS),
+            size=(38, 38),
+        )
         ctk.CTkButton(
-            _right_frame, text="⚙", width=36, height=36,
-            font=ctk.CTkFont(size=18),
-            fg_color="transparent", border_width=1,
+            _right_frame, text="", image=_gear_img, width=44, height=44,
+            fg_color="transparent", hover_color=("gray86", "gray17"), border_width=0,
             command=self._open_settings,
         ).pack(anchor="e", padx=(0, 4))
 
@@ -121,16 +131,23 @@ class App(ctk.CTk):
         ctk.CTkFrame(self, height=10, fg_color="transparent").pack()
 
         self._container = ctk.CTkFrame(self, fg_color="transparent")
-        self._container.pack(fill="both", expand=True, padx=20, pady=(0, 18))
+        self._container.pack(fill="both", expand=True, padx=20, pady=(0, 4))
+
+        ctk.CTkLabel(
+            self,
+            text="© 2026 Fernando García Sánchez · UC3M / Hospital Nacional de Parapléjicos · MIT License",
+            text_color="gray50",
+            font=ctk.CTkFont(size=10),
+        ).pack(pady=(0, 6))
 
         self._show_screen_1()
 
     # ── Header refresh ─────────────────────────────────────────────────────
 
     def _refresh_header(self) -> None:
-        self._title_lbl.configure(text=t("app_title"))
+        self._title_lbl.configure(text=t("app_title").upper())
         self._subtitle_lbl.configure(text=t("app_subtitle"))
-        self.title(t("app_title"))
+        self.title("ROM ANALYZER")
 
     # ── Screen helpers ─────────────────────────────────────────────────────
 
@@ -196,11 +213,70 @@ class App(ctk.CTk):
                 command=lambda v=value: self._on_theme_change(v),
             ).pack(side="left", padx=(0, 24))
 
-        # ── Close ─────────────────────────────────────────────────────────
+        # ── About + Close ─────────────────────────────────────────────────
+        btn_row = ctk.CTkFrame(dlg, fg_color="transparent")
+        btn_row.pack(side="bottom", pady=(0, 18), padx=28, fill="x")
         ctk.CTkButton(
-            dlg, text=t("settings_close"),
+            btn_row, text=t("settings_about"),
+            width=120, fg_color="transparent", border_width=1,
+            command=lambda: self._open_about(dlg),
+        ).pack(side="left")
+        ctk.CTkButton(
+            btn_row, text=t("settings_close"),
             width=120, command=dlg.destroy,
-        ).pack(pady=(28, 18))
+        ).pack(side="right")
+
+    def _open_about(self, parent: ctk.CTkToplevel) -> None:
+        dlg = ctk.CTkToplevel(parent)
+        dlg.title(t("about_title"))
+        dlg.geometry("500x370")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.lift()
+        dlg.focus_force()
+
+        ctk.CTkLabel(
+            dlg, text="ROM ANALYZER — VICON NEXUS",
+            font=ctk.CTkFont(family="Century Gothic", size=16, weight="bold"),
+        ).pack(pady=(28, 2))
+
+        ctk.CTkLabel(
+            dlg, text=t("app_subtitle"),
+            font=ctk.CTkFont(family="Century Gothic", size=12),
+            text_color="gray",
+        ).pack(pady=(0, 20))
+
+        info_frame = ctk.CTkFrame(dlg, fg_color=("gray90", "gray20"), corner_radius=10)
+        info_frame.pack(padx=30, fill="x")
+
+        fields = [
+            (t("about_author"),      "Fernando García Sánchez"),
+            (t("about_university"),  t("about_university_value")),
+            (t("about_institution"), t("about_institution_value")),
+            (t("about_unit"),        t("about_unit_value")),
+            (t("about_year"),        "2026"),
+            (t("about_license"),     t("about_license_value")),
+        ]
+        for label, value in fields:
+            row = ctk.CTkFrame(info_frame, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=4)
+            ctk.CTkLabel(
+                row, text=f"{label}:", width=100, anchor="w",
+                font=ctk.CTkFont(size=12, weight="bold"),
+            ).pack(side="left")
+            ctk.CTkLabel(
+                row, text=value, anchor="w",
+                font=ctk.CTkFont(size=12),
+            ).pack(side="left")
+
+        ctk.CTkLabel(
+            dlg, text=t("about_tfg"),
+            font=ctk.CTkFont(size=10),
+            text_color="gray",
+            justify="center",
+        ).pack(pady=(16, 8))
+
+        ctk.CTkButton(dlg, text=t("settings_close"), width=100, command=dlg.destroy).pack(pady=(4, 20))
 
     def _on_language_change(self, lang: str, dlg: ctk.CTkToplevel) -> None:
         settings_manager.set_language(lang)
@@ -1141,10 +1217,6 @@ class App(ctk.CTk):
             font=ctk.CTkFont(weight="bold"),
             command=self._new_analysis,
         ).pack(side="right")
-        ctk.CTkButton(
-            btn_row, text=t("s4_generate_report"), width=160,
-            command=self._generate_report,
-        ).pack(side="right", padx=4)
 
     def _toggle_layout(self) -> None:
         self._layout_vertical = not self._layout_vertical
