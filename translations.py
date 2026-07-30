@@ -5,8 +5,8 @@ import settings_manager
 _STRINGS: dict[str, dict[str, str]] = {
     # ── App header ────────────────────────────────────────────────────────
     "app_title": {
-        "en": "ROM Analyzer — Vicon Nexus",
-        "es": "ROM Analyzer — Vicon Nexus",
+        "en": "ROM Analyzer - Vicon Nexus",
+        "es": "ROM Analyzer - Vicon Nexus",
     },
     "app_subtitle": {
         "en": "Range of Motion Analysis",
@@ -23,6 +23,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     "settings_about": {"en": "About", "es": "Acerca de"},
     # ── About dialog ──────────────────────────────────────────────────────
     "about_title":       {"en": "About",        "es": "Acerca de"},
+    "about_version":          {"en": "Version",       "es": "Versión"},
     "about_author":           {"en": "Author",        "es": "Autor"},
     "about_university":       {"en": "University",    "es": "Universidad"},
     "about_institution":      {"en": "Institution",   "es": "Institución"},

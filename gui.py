@@ -16,6 +16,8 @@ from translations import t
 
 _ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
+APP_VERSION = "1.0.1"
+
 logger = logging.getLogger(__name__)
 
 # ── Side display label for no-prefix variables ────────────────────────────
@@ -111,6 +113,12 @@ class App(ctk.CTk):
             font=ctk.CTkFont(family="Century Gothic", size=18),
         )
         self._subtitle_lbl.grid(row=1, column=0, columnspan=3)
+
+        self._version_lbl = ctk.CTkLabel(
+            _hdr, text=f"v{APP_VERSION}", text_color="gray50",
+            font=ctk.CTkFont(size=14),
+        )
+        self._version_lbl.grid(row=2, column=0, columnspan=3, pady=(2, 0))
 
         # Settings button — top-right corner of the header
         _right_frame = ctk.CTkFrame(_hdr, fg_color="transparent")
@@ -219,6 +227,8 @@ class App(ctk.CTk):
         ctk.CTkButton(
             btn_row, text=t("settings_about"),
             width=120, fg_color="transparent", border_width=1,
+            text_color=("gray10", "gray90"),
+            hover_color=("gray86", "gray17"),
             command=lambda: self._open_about(dlg),
         ).pack(side="left")
         ctk.CTkButton(
@@ -236,7 +246,7 @@ class App(ctk.CTk):
         dlg.focus_force()
 
         ctk.CTkLabel(
-            dlg, text="ROM ANALYZER — VICON NEXUS",
+            dlg, text="ROM ANALYZER - VICON NEXUS",
             font=ctk.CTkFont(family="Century Gothic", size=16, weight="bold"),
         ).pack(pady=(28, 2))
 
@@ -250,6 +260,7 @@ class App(ctk.CTk):
         info_frame.pack(padx=30, fill="x")
 
         fields = [
+            (t("about_version"),     APP_VERSION),
             (t("about_author"),      "Fernando García Sánchez"),
             (t("about_university"),  t("about_university_value")),
             (t("about_institution"), t("about_institution_value")),
@@ -760,7 +771,7 @@ class App(ctk.CTk):
 
         # Update widgets to reflect loaded state
         fname = old.get("filename", "…")
-        row_data["file_lbl"].configure(text=fname, text_color="white")
+        row_data["file_lbl"].configure(text=fname, text_color=("black", "white"), font=ctk.CTkFont(size=10, weight="bold"))
         row_data["status_lbl"].configure(text="✓", text_color="#4CAF50")
 
     def _browse_c3d(self, row_data: dict) -> None:
@@ -805,7 +816,7 @@ class App(ctk.CTk):
             row_data["c3d_path"]   = path
             row_data["frame_rate"] = c3d_data["frame_rate"]
             row_data["events"]     = c3d_data.get("events", [])
-            row_data["file_lbl"].configure(text=fname, text_color="white")
+            row_data["file_lbl"].configure(text=fname, text_color=("black", "white"), font=ctk.CTkFont(size=10, weight="bold"))
             row_data["status_lbl"].configure(text="✓", text_color="#4CAF50")
             self._update_process_btn()
             return
@@ -876,7 +887,7 @@ class App(ctk.CTk):
         row_data["frame_rate"] = c3d_data["frame_rate"]
         row_data["events"]     = c3d_data.get("events", [])
 
-        row_data["file_lbl"].configure(text=fname, text_color="white")
+        row_data["file_lbl"].configure(text=fname, text_color=("black", "white"), font=ctk.CTkFont(size=10, weight="bold"))
         row_data["status_lbl"].configure(text="✓", text_color="#4CAF50")
 
         self._update_process_btn()
