@@ -8,7 +8,10 @@ Developed as part of a Final Degree Project (TFG) at Universidad Carlos III de M
 
 ## Download
 
-[![Download Installer](https://img.shields.io/badge/Download-ROM_Analyzer_Setup_v1.0.0-blue?style=for-the-badge&logo=windows)](https://github.com/Fer-100495553/rom_analyzer_app/releases/tag/v1.0.0)
+[![Download Installer](https://img.shields.io/badge/Download-ROM_Analyzer_Setup_v1.0.0-green?style=for-the-badge&logo=windows)](https://github.com/Fer-100495553/rom_analyzer_app/releases/tag/v1.0.0)
+
+[![Download Installer](https://img.shields.io/badge/Download-ROM_Analyzer_Setup_v1.0.0-blue?style=for-the-badge&logo=windows)](https://github.com/Fer-100495553/rom_analyzer_app/releases/tag/v1.0.1)
+
 
 > No Python installation required. Download and run the installer.  
 > **Requirements:** Windows 10/11 (64-bit)
