@@ -529,10 +529,14 @@ class App(ctk.CTk):
         f = ctk.CTkFrame(self._container, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
+        # Navigation buttons anchored to the bottom before the card is packed
+        nav = ctk.CTkFrame(f, fg_color="transparent")
+        nav.pack(side="bottom", fill="x", pady=(8, 0))
+
         card_title = (t("s2_card_import_individual") if is_individual
                       else t("s2_card_import"))
         card_imp = _card(f, card_title)
-        card_imp.pack(fill="x", pady=(0, 8))
+        card_imp.pack(fill="both", expand=True, pady=(0, 0))
 
         # Table header
         hdr = ctk.CTkFrame(card_imp, fg_color="transparent")
@@ -552,8 +556,8 @@ class App(ctk.CTk):
                          font=ctk.CTkFont(size=11, weight="bold"),
                          anchor="w").pack(side="left", padx=2)
 
-        scroll = ctk.CTkScrollableFrame(card_imp, height=320)
-        scroll.pack(fill="x", padx=12, pady=(0, 8))
+        scroll = ctk.CTkScrollableFrame(card_imp)
+        scroll.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         from config import MOVEMENT_DEFINITIONS, MOVEMENT_PAIR_GROUPS
         laterality = self._laterality_var.get()
@@ -738,10 +742,7 @@ class App(ctk.CTk):
                         row_data,
                         old_state.get((mv_name, side_label, rep_idx)))
 
-        # Navigation buttons
-        nav = ctk.CTkFrame(f, fg_color="transparent")
-        nav.pack(fill="x", pady=(8, 0))
-
+        # Navigation buttons (nav frame already packed at bottom)
         ctk.CTkButton(
             nav, text=t("s2_back"), width=200,
             command=self._show_screen_1,
@@ -1318,7 +1319,7 @@ class App(ctk.CTk):
             extended = data.get("extended", {})
             break
 
-        fig = Figure(figsize=(9, 4.5))
+        fig = Figure(figsize=(8, 3.6))
         axes = fig.subplots(1, 3)
         fig.subplots_adjust(wspace=0.35, top=0.82)
         fig.suptitle(mv_name, fontsize=13, fontweight="bold")
@@ -1779,7 +1780,6 @@ class App(ctk.CTk):
 
         win = ctk.CTkToplevel(self)
         win.title(t("s4_csv_dlg_win_title"))
-        win.geometry("340x300")
         win.resizable(False, False)
         win.grab_set()
         win.lift()
@@ -1838,6 +1838,9 @@ class App(ctk.CTk):
         ctk.CTkButton(
             btn_frame, text=t("s4_xlsx_export_btn"), command=_do_export,
         ).pack(side="right")
+
+        win.update_idletasks()
+        win.geometry(f"{win.winfo_reqwidth()}x{win.winfo_reqheight()}")
 
     def _build_and_save_csv(self, path: str, sections: list) -> None:
         import os
@@ -1968,7 +1971,6 @@ class App(ctk.CTk):
 
         win = ctk.CTkToplevel(self)
         win.title(t("s4_xlsx_win_title"))
-        win.geometry("340x360")
         win.resizable(False, False)
         win.grab_set()
         win.lift()
@@ -2026,6 +2028,9 @@ class App(ctk.CTk):
         ctk.CTkButton(
             btn_frame, text=t("s4_xlsx_export_btn"), command=_do_export,
         ).pack(side="right")
+
+        win.update_idletasks()
+        win.geometry(f"{win.winfo_reqwidth()}x{win.winfo_reqheight()}")
 
     def _build_and_save_xlsx(
         self,

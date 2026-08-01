@@ -1,8 +1,8 @@
 #define MyAppName "ROM Analyzer"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Fernando García Sánchez"
 #define MyAppURL "https://github.com"
-#define MyAppExeName "main.exe"
+#define MyAppExeName "ROM_Analyzer.exe"
 #define MyAppIcon "..\assets\logo.ico"
 #define DistDir "..\dist_test\main.dist"
 

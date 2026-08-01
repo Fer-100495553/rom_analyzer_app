@@ -343,7 +343,7 @@ def plot_rom_raincloud(
     sides_data = movements_data[mv_name]
     n_sides    = len(sides_data)
 
-    fig  = Figure(figsize=(9, 4.5))
+    fig  = Figure(figsize=(8, 3.6))
     axes = fig.subplots(1, 3)
     fig.subplots_adjust(wspace=0.35, top=0.82)
     fig.suptitle(mv_name, fontsize=13, fontweight="bold")
